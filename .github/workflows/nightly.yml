@@ -1,0 +1,20 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  deep-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build --config Debug
+      - name: All tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Headless check
+        run: ./build/src/UniversalStorageAnalyzer --headless-check --offline

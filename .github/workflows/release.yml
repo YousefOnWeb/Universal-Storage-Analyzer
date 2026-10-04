@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (clean)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Package smoke test
+        run: ./build/src/UniversalStorageAnalyzer --smoke-test
+      # Signing, installer creation, and artifact attestations attach here.

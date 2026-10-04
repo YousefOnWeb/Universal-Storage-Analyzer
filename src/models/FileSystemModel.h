@@ -1,0 +1,75 @@
+#pragma once
+
+#include <QAbstractItemModel>
+#include <QVector>
+
+#include "../services/ScanTypes.h"
+
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
+
+// Virtualized tree model: QTreeView renders only visible rows while the
+// scanner streams batches in the background. All mutations arrive via
+// queued slots on the GUI thread — never touched from the worker thread.
+class FileSystemModel : public QAbstractItemModel {
+    Q_OBJECT
+public:
+    enum Columns : int {
+        ColName = 0,
+        ColSize = 1,
+        ColAllocated = 2,
+        ColFiles = 3,
+        ColFolders = 4,
+        ColModified = 5,
+        ColCount = 6,
+    };
+
+    explicit FileSystemModel(QObject* parent = nullptr);
+
+    // QAbstractItemModel
+    QModelIndex index(int row, int column,
+                      const QModelIndex& parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex& child) const override;
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex& parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation,
+                        int role = Qt::DisplayRole) const override;
+
+    quint32 nodeIdForIndex(const QModelIndex& index) const;
+    QModelIndex indexForNodeId(quint32 nodeId) const;
+    quint64 totalLogicalBytes() const { return totalLogical_; }
+
+public slots:
+    void clear();
+    void onNodesDiscovered(const QString& taskId, QVector<FileRecord> batch);
+    void onBranchMetricsUpdated(const QString& taskId, BranchMetrics metrics);
+    void onScanStarted(const QString& taskId, const QString& targetPath);
+
+signals:
+    void modelResetForNewScan(const QString& targetPath);
+
+private:
+    struct Node {
+        quint32 id{0};
+        quint32 parentId{0};
+        QString name{};
+        quint64 logicalSize{0};
+        quint64 allocatedSize{0};
+        quint32 fileCount{0};
+        quint32 folderCount{0};
+        quint64 lastModifiedTs{0};
+        bool isDirectory{false};
+        Node* parent{nullptr};
+        QVector<Node*> children{};
+    };
+
+    Node* nodeFromIndex(const QModelIndex& index) const;
+    void propagateToAncestors(Node* start, quint64 logicalDelta, quint64 allocatedDelta,
+                              bool countFile, bool countFolder);
+
+    std::unordered_map<quint32, std::unique_ptr<Node>> owned_{};
+    Node* root_{nullptr};
+    quint64 totalLogical_{0};
+};

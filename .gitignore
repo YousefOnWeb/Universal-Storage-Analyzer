@@ -1,0 +1,17 @@
+build/
+cmake-build-*/
+*.user
+*.o
+*.obj
+moc_*
+qrc_*
+ui_*
+Makefile
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+.vs/
+.vscode/
+.idea/
+*.exe

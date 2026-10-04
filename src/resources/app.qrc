@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/styles">
+        <file alias="light.qss">light.qss</file>
+        <file alias="dark.qss">dark.qss</file>
+    </qresource>
+    <qresource prefix="/migrations">
+        <file alias="V1__Initial_Schema.sql">migrations/V1__Initial_Schema.sql</file>
+    </qresource>
+</RCC>

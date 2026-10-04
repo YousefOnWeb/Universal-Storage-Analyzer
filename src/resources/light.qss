@@ -1,0 +1,6 @@
+/* Light theme — default Qt fusion-friendly overrides. */
+QMainWindow, QWidget { font-size: 10pt; }
+QTreeView, QTableView { alternate-background-color: #f4f6f8; gridline-color: #dfe3e8; }
+QTreeView::item:selected, QTableView::item:selected { background: #2f7ed8; color: white; }
+QStatusBar { background: #eef1f4; }
+QToolBar { background: #f7f9fb; spacing: 6px; }

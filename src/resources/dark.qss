@@ -1,0 +1,12 @@
+/* Dark theme — high-contrast for prolonged maintenance sessions. */
+QMainWindow, QWidget { background: #1e2228; color: #e6e9ee; font-size: 10pt; }
+QTreeView, QTableView { background: #232932; alternate-background-color: #262d38; gridline-color: #39414e; color: #e6e9ee; }
+QTreeView::item:selected, QTableView::item:selected { background: #2f7ed8; color: white; }
+QHeaderView::section { background: #2b323d; color: #e6e9ee; border: 1px solid #39414e; }
+QStatusBar, QToolBar { background: #232932; color: #e6e9ee; }
+QLineEdit, QComboBox { background: #2b323d; color: #e6e9ee; border: 1px solid #39414e; padding: 3px; }
+QPushButton { background: #2b323d; border: 1px solid #39414e; padding: 5px 12px; }
+QPushButton:hover { border-color: #2f7ed8; }
+QTabWidget::pane { border: 1px solid #39414e; }
+QTabBar::tab { background: #2b323d; padding: 6px 12px; }
+QTabBar::tab:selected { background: #2f7ed8; color: white; }
