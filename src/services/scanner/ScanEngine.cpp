@@ -15,6 +15,14 @@ std::string utf8Name(const std::filesystem::path& p)
     return {reinterpret_cast<const char*>(raw.data()), raw.size()};
 }
 
+// Full-path variant for diagnostics: error messages must show WHERE,
+// not just the leaf name.
+std::string utf8Path(const std::filesystem::path& p)
+{
+    const auto raw = p.u8string();
+    return {reinterpret_cast<const char*>(raw.data()), raw.size()};
+}
+
 } // namespace
 
 ScanEngine::ScanEngine() = default;
@@ -99,7 +107,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
                 std::lock_guard<std::mutex> lock{emitMutex_};
-                callbacks.onError("Cannot enumerate directory: " + utf8Name(job.path));
+                callbacks.onError("Cannot enumerate directory: " + utf8Path(job.path));
             }
             queue_.taskDone();
             continue;
@@ -192,7 +200,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     std::error_code ec{};
     if (!std::filesystem::exists(root, ec) || ec) {
         if (callbacks.onError) {
-            callbacks.onError("Target path does not exist: " + utf8Name(root));
+            callbacks.onError("Target path does not exist: " + utf8Path(root));
         }
         backend_ = BackendKind::NativeDirectory;
         return EngineResult{};
