@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // Portable NTFS record parsing (pure byte wrangling, no OS calls).
 // Shared by the direct volume reader; unit-tested everywhere without
@@ -27,6 +28,19 @@ struct MftRecord {
 };
 
 std::uint64_t filetimeToUnix(std::uint64_t filetime);
+
+// One data run of a non-resident attribute: lengthClusters of storage
+// starting at startLcn (delta-coded on disk). Sparse runs occupy no
+// clusters; startLcn is meaningless for them.
+struct DataRun {
+    std::uint64_t lengthClusters{0};
+    std::int64_t startLcn{0};
+    bool sparse{false};
+};
+
+// Decode a data-run list. Lenient like the on-disk format requires:
+// malformed tails stop the walk, keeping runs decoded so far.
+bool parseDataRuns(const unsigned char* runs, std::size_t maxLen, std::vector<DataRun>& out);
 
 // Parse one raw MFT record image. Returns true and fills rec when the
 // record is usable (valid fixup, in use, has a file name). Never reads

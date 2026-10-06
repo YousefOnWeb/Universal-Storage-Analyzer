@@ -39,6 +39,49 @@ std::uint64_t filetimeToUnix(std::uint64_t filetime)
     return filetime > kEpochDiff ? (filetime - kEpochDiff) / kTicksPerSec : 0;
 }
 
+bool parseDataRuns(const unsigned char* runs, std::size_t maxLen, std::vector<DataRun>& out)
+{
+    if (runs == nullptr) {
+        return false;
+    }
+    std::size_t pos{0};
+    std::int64_t curLcn{0};
+    while (pos < maxLen) {
+        const unsigned char header = runs[pos++];
+        const unsigned lenBytes = header & 0xF;
+        const unsigned lcnBytes = (header >> 4) & 0xF;
+        if (lenBytes == 0 && lcnBytes == 0) {
+            break; // terminator
+        }
+        if (lenBytes == 0 || lenBytes > 8 || lcnBytes > 8 || pos + lenBytes + lcnBytes > maxLen) {
+            break; // malformed tail; keep runs decoded so far
+        }
+        std::uint64_t runLen{0};
+        for (unsigned i{0}; i < lenBytes; ++i) {
+            runLen |= static_cast<std::uint64_t>(runs[pos + i]) << (i * 8);
+        }
+        pos += lenBytes;
+        if (lcnBytes == 0) {
+            continue; // no location: contributes nothing
+        }
+        std::int64_t delta{0};
+        for (unsigned i{0}; i < lcnBytes; ++i) {
+            delta |= static_cast<std::int64_t>(runs[pos + i]) << (i * 8);
+        }
+        if ((runs[pos + lcnBytes - 1] & 0x80) != 0) {
+            delta |= -(static_cast<std::int64_t>(1) << (lcnBytes * 8));
+        }
+        pos += lcnBytes;
+        if (delta == -1) {
+            out.push_back(DataRun{runLen, 0, true});
+            continue; // sparse run: no storage, LCN chain untouched
+        }
+        curLcn += delta;
+        out.push_back(DataRun{runLen, curLcn, false});
+    }
+    return true;
+}
+
 bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint32_t number,
                     MftRecord& rec)
 {
@@ -153,43 +196,17 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     rec.physicalSize = compSize > 0 ? compSize : allocSize;
                     rec.physicalIsClusterCount = false;
                 } else {
-                    // Walk the data-run list; sparse runs (LCN -1) occupy
-                    // no clusters. Only run lengths matter for the
-                    // allocated total; LCNs are delta-coded.
-                    std::uint64_t dataClusters{0};
-                    std::size_t roff = off + runOff;
+                    // Decode the data-run list with the shared decoder;
+                    // sparse runs occupy no clusters.
+                    const std::size_t roff = off + runOff;
                     const std::size_t rend = off + len;
-                    while (roff < rend) {
-                        const unsigned char header = p[roff++];
-                        const unsigned lenBytes = header & 0xF;
-                        const unsigned lcnBytes = (header >> 4) & 0xF;
-                        if (lenBytes == 0 && lcnBytes == 0) {
-                            break;
+                    std::vector<DataRun> runs{};
+                    parseDataRuns(p + roff, rend > roff ? rend - roff : 0, runs);
+                    std::uint64_t dataClusters{0};
+                    for (const auto& run : runs) {
+                        if (!run.sparse) {
+                            dataClusters += run.lengthClusters;
                         }
-                        if (lenBytes == 0 || lenBytes > 8 || lcnBytes > 8
-                            || roff + lenBytes + lcnBytes > rend) {
-                            break;
-                        }
-                        std::uint64_t runLen{0};
-                        for (unsigned i{0}; i < lenBytes; ++i) {
-                            runLen |= static_cast<std::uint64_t>(p[roff + i]) << (i * 8);
-                        }
-                        roff += lenBytes;
-                        if (lcnBytes == 0) {
-                            continue;
-                        }
-                        std::int64_t delta{0};
-                        for (unsigned i{0}; i < lcnBytes; ++i) {
-                            delta |= static_cast<std::int64_t>(p[roff + i]) << (i * 8);
-                        }
-                        if ((p[roff + lcnBytes - 1] & 0x80) != 0) {
-                            delta |= -(static_cast<std::int64_t>(1) << (lcnBytes * 8));
-                        }
-                        roff += lcnBytes;
-                        if (delta == -1) {
-                            continue; // sparse run: no storage
-                        }
-                        dataClusters += runLen;
                     }
                     rec.physicalSize = dataClusters;
                     rec.physicalIsClusterCount = true;

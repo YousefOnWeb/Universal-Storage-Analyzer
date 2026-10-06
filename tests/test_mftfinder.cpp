@@ -106,6 +106,35 @@ std::vector<unsigned char> makeFileRecord()
 
 } // namespace
 
+// Rewrites the fixture's resident $DATA attribute (at offset 218) as a
+// non-resident one with runs [3 clusters at LCN 100][2 sparse clusters].
+// Compressed layouts reserve the 8-byte compressed-size field, shifting
+// the run list by 8.
+void patchNonResidentData(std::vector<unsigned char>& buf, bool compressed, std::uint64_t compSize)
+{
+    putU32(buf, 218, 0x80);
+    buf[226] = 1; // non-resident
+    buf[227] = 0; // unnamed
+    putU16(buf, 230, compressed ? 1 : 0); // attribute flags
+    const std::uint16_t runOff = compressed ? 72 : 64;
+    putU16(buf, 250, runOff);
+    putU64(buf, 258, 12288); // allocated size
+    const std::size_t r = 218 + runOff;
+    if (compressed) {
+        putU64(buf, 282, compSize);
+    }
+    buf[r + 0] = 0x11;
+    buf[r + 1] = 3;
+    buf[r + 2] = 100; // run 1: data
+    buf[r + 3] = 0x11;
+    buf[r + 4] = 2;
+    buf[r + 5] = 0xFF; // run 2: sparse (LCN -1)
+    buf[r + 6] = 0x00; // terminator
+    const std::uint32_t len = static_cast<std::uint32_t>(runOff + 7);
+    putU32(buf, 222, len);
+    putU32(buf, 218 + len, 0xFFFFFFFFU); // end marker
+}
+
 class TestMftFinder : public QObject {
     Q_OBJECT
 private slots:
@@ -143,6 +172,29 @@ private slots:
         putU16(notInUse, 22, 0x00);
         QVERIFY(
             !usa::scanner::detail::parseMftRecord(notInUse.data(), notInUse.size(), 42, rec));
+    }
+
+    void decodesNonResidentRunsSkippingSparse()
+    {
+        // Rewrites the fixture's resident $DATA (at 218) as non-resident:
+        // 3 clusters at LCN 100, then 2 sparse clusters.
+        auto buf = makeFileRecord();
+        patchNonResidentData(buf, false, 0);
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QVERIFY(rec.physicalIsClusterCount);
+        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(3));
+        QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
+    }
+
+    void prefersCompressedSizeForCompressedData()
+    {
+        auto buf = makeFileRecord();
+        patchNonResidentData(buf, true, 500);
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QVERIFY(!rec.physicalIsClusterCount);
+        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(500));
     }
     void reportsAvailabilityConsistently()
     {
