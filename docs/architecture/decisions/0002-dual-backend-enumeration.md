@@ -18,7 +18,7 @@ root, coordinated by a `ScanEngine` over a `BlockingQueue` work pool:
   Windows, readdir + lstat elsewhere). Always available.
 - Aggregation ownership: the engine accumulates per-directory totals
   and propagates them up the ancestor chain itself (atomics for global
-  counters, mutex-guarded maps for the tree). Consumers store absolute
+  counters, and lock-free atomic `DirAcc` nodes for the tree). Consumers store absolute
   summaries verbatim and never add — this ended a latent double-count
   where per-file propagation and additive summaries overlapped.
 - UI delivery stays exactly as before: node batches (<=500) and
