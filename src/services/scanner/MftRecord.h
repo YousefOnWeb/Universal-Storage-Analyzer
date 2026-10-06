@@ -18,9 +18,12 @@ struct MftRecord {
     bool isDirectory{false};
     bool inUse{false};
     bool isReparsePoint{false};
-    // True when physicalSize holds a cluster count (non-resident data
-    // runs); the caller scales it by bytes-per-cluster.
-    bool physicalIsClusterCount{false};
+    // When false, physicalSize is used directly (fallback).
+    // When true, MftFinder will calculate physicalSize = residentBytes + (nonResidentClusters * clusterSize).
+    bool usesClusterMath{false};
+    std::uint64_t residentBytes{0};
+    std::uint64_t nonResidentClusters{0};
+    
     std::wstring name{};
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};

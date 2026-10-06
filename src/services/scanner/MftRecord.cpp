@@ -125,6 +125,9 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
     }
 
     bool haveName{false};
+    bool hasAttributeList{false};
+    bool hasAnyData{false};
+    std::uint64_t fallbackAllocSize{0};
     std::size_t off = attrOffset;
     while (off + 8 <= recordSize) {
         const std::uint32_t type = readU32(p + off);
@@ -136,10 +139,11 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
             break; // corrupt chain; keep what we have so far
         }
         const bool nonResident = p[off + 8] != 0;
-        const std::uint8_t nameLen = p[off + 9];
         const std::uint16_t attrFlags = readU16(p + off + 12);
 
-        if (type == 0x10 && !nonResident) { // $STANDARD_INFORMATION
+        if (type == 0x20) { // $ATTRIBUTE_LIST
+            hasAttributeList = true;
+        } else if (type == 0x10 && !nonResident) { // $STANDARD_INFORMATION
             const std::uint32_t contentLen = readU32(p + off + 16);
             const std::uint16_t contentOff = readU16(p + off + 20);
             const std::size_t cstart = off + contentOff;
@@ -168,6 +172,12 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                 }
                 const std::uint8_t fnNameLen = p[cstart + 64];
                 const std::size_t nameOff = cstart + 66;
+                const std::uint64_t allocSize = readU64(p + cstart + 56);
+                
+                if (fallbackAllocSize == 0 || fallbackAllocSize < allocSize) {
+                    fallbackAllocSize = allocSize;
+                }
+
                 if (fnNameLen > 0
                     && nameOff + static_cast<std::size_t>(fnNameLen) * 2 <= recordSize) {
                     rec.parentNumber = parentNum;
@@ -184,17 +194,17 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     haveName = true;
                 }
             }
-        } else if (type == 0x80 && nameLen == 0) { // unnamed $DATA
+        } else if (type == 0x80) { // $DATA (both unnamed and named, like WofCompressedData)
+            hasAnyData = true;
             if (!nonResident) {
-                rec.physicalSize = readU32(p + off + 16); // resident content
-                rec.physicalIsClusterCount = false;
+                rec.residentBytes += readU32(p + off + 16); // resident content
             } else {
                 const std::uint16_t runOff = readU16(p + off + 32);
                 const std::uint64_t allocSize = readU64(p + off + 40);
                 const std::uint64_t compSize = readU64(p + off + 64);
                 if ((attrFlags & 0x1) != 0) {
-                    rec.physicalSize = compSize > 0 ? compSize : allocSize;
-                    rec.physicalIsClusterCount = false;
+                    // compressed non-resident stream
+                    rec.residentBytes += compSize > 0 ? compSize : allocSize;
                 } else {
                     // Decode the data-run list with the shared decoder;
                     // sparse runs occupy no clusters.
@@ -208,13 +218,22 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                             dataClusters += run.lengthClusters;
                         }
                     }
-                    rec.physicalSize = dataClusters;
-                    rec.physicalIsClusterCount = true;
+                    rec.nonResidentClusters += dataClusters;
                 }
             }
         }
         off += len;
     }
+    
+    if (hasAttributeList && !hasAnyData) {
+        // Multi-extent resident edge case: the entire $DATA attribute was pushed to an extension record.
+        // We fall back safely to the allocation size from $FILE_NAME to avoid reporting 0 physical bytes.
+        rec.physicalSize = fallbackAllocSize;
+        rec.usesClusterMath = false;
+    } else {
+        rec.usesClusterMath = true;
+    }
+    
     return haveName;
 }
 

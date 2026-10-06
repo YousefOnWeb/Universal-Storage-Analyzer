@@ -473,9 +473,9 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     shared->bytesPerCluster = clusterSize;
     for (auto& vec : local) {
         for (auto& rec : vec) {
-            if (rec.physicalIsClusterCount) {
-                rec.physicalSize *= clusterSize;
-                rec.physicalIsClusterCount = false;
+            if (rec.usesClusterMath) {
+                rec.physicalSize = rec.residentBytes + (rec.nonResidentClusters * clusterSize);
+                rec.usesClusterMath = false;
             }
             const std::size_t idx = shared->records.size();
             shared->byNumber.emplace(rec.number, idx);
