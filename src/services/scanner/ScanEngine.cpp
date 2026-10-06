@@ -53,34 +53,26 @@ void ScanEngine::emitBatch(const EngineCallbacks& callbacks, std::vector<EngineN
     callbacks.onBatch(std::move(out));
 }
 
-void ScanEngine::emitChain(const EngineCallbacks& callbacks, std::uint32_t leafId)
+void ScanEngine::emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc)
 {
-    if (!callbacks.onDirSummary) {
+    if (!callbacks.onDirSummary || !leafAcc) {
         return;
     }
-    // Snapshot the leaf-to-root chain under one lock, emit without it.
-    std::vector<std::pair<std::uint32_t, DirAcc>> chain{};
-    {
-        std::lock_guard<std::mutex> lock{mapMutex_};
-        std::uint32_t current{leafId};
-        for (std::size_t depth{0}; depth < 1000000; ++depth) {
-            chain.emplace_back(current, totals_[current]);
-            const auto parent = parentOf_.find(current);
-            if (parent == parentOf_.end()) {
-                break; // reached the root (which has no parent entry)
-            }
-            current = parent->second;
-        }
+    std::vector<EngineDirSummary> chain{};
+    DirAcc* current = leafAcc;
+    while (current != nullptr) {
+        EngineDirSummary summary{};
+        summary.nodeId = current->id;
+        summary.logicalSize = current->logical.load(std::memory_order_relaxed);
+        summary.physicalSize = current->physical.load(std::memory_order_relaxed);
+        summary.fileCount = current->files.load(std::memory_order_relaxed);
+        summary.folderCount = current->folders.load(std::memory_order_relaxed);
+        chain.push_back(summary);
+        current = current->parent;
     }
     std::lock_guard<std::mutex> lock{emitMutex_};
-    for (const auto& [id, acc] : chain) {
-        EngineDirSummary summary{};
-        summary.nodeId = id;
-        summary.logicalSize = acc.logical;
-        summary.physicalSize = acc.physical;
-        summary.fileCount = acc.files;
-        summary.folderCount = acc.folders;
-        callbacks.onDirSummary(summary);
+    for (const auto& s : chain) {
+        callbacks.onDirSummary(s);
     }
 }
 
@@ -90,7 +82,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
     std::vector<EngineNode> batch{};
     batch.reserve(kBatchNodes);
     auto lastFlush = std::chrono::steady_clock::now();
-    const auto maybeFlush = [&](std::uint32_t chainLeaf, bool force) {
+    const auto maybeFlush = [&](DirAcc* chainLeaf, bool force) {
         const auto now = std::chrono::steady_clock::now();
         if (!batch.empty()
             && (force || batch.size() >= kBatchNodes || now - lastFlush >= kFlushInterval)) {
@@ -118,7 +110,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             const DirEntry& entry = finder->current();
             EngineNode node{};
             node.id = nextId_.fetch_add(1, std::memory_order_relaxed);
-            node.parentId = job.id;
+            node.parentId = job.acc ? job.acc->id : 0;
             node.nameUtf8 = utf8Name(entry.fullPath);
             node.logicalSize = entry.logicalSize;
             node.physicalSize = entry.physicalSize;
@@ -126,40 +118,34 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             node.isDirectory = entry.isDirectory;
 
             if (entry.isDirectory && !entry.isReparsePoint) {
-                {
-                    std::lock_guard<std::mutex> lock{mapMutex_};
-                    parentOf_.emplace(node.id, job.id);
-                    // New subdirectories count toward every ancestor up to
-                    // the root, so absolute summaries stay exact.
-                    std::uint32_t current{job.id};
-                    for (std::size_t depth{0}; depth < 1000000; ++depth) {
-                        ++totals_[current].folders;
-                        const auto parent = parentOf_.find(current);
-                        if (parent == parentOf_.end()) {
-                            break;
-                        }
-                        current = parent->second;
-                    }
+                auto childAcc = std::make_unique<DirAcc>();
+                childAcc->parent = job.acc;
+                childAcc->id = node.id;
+                DirAcc* childAccPtr = childAcc.get();
+                
+                DirAcc* up = job.acc;
+                while (up != nullptr) {
+                    up->folders.fetch_add(1, std::memory_order_relaxed);
+                    up = up->parent;
                 }
+                
+                {
+                    std::lock_guard<std::mutex> lock{dirsMutex_};
+                    allDirs_.push_back(std::move(childAcc));
+                }
+
                 batch.push_back(std::move(node));
                 dirCount_.fetch_add(1, std::memory_order_relaxed);
-                queue_.push(DirJob{entry.fullPath, batch.back().id});
+                queue_.push(DirJob{entry.fullPath, childAccPtr});
             } else {
-                {
-                    std::lock_guard<std::mutex> lock{mapMutex_};
-                    std::uint32_t current{job.id};
-                    for (std::size_t depth{0}; depth < 1000000; ++depth) {
-                        DirAcc& acc = totals_[current];
-                        acc.logical += entry.logicalSize;
-                        acc.physical += entry.physicalSize;
-                        ++acc.files;
-                        const auto parent = parentOf_.find(current);
-                        if (parent == parentOf_.end()) {
-                            break;
-                        }
-                        current = parent->second;
-                    }
+                DirAcc* up = job.acc;
+                while (up != nullptr) {
+                    up->logical.fetch_add(entry.logicalSize, std::memory_order_relaxed);
+                    up->physical.fetch_add(entry.physicalSize, std::memory_order_relaxed);
+                    up->files.fetch_add(1, std::memory_order_relaxed);
+                    up = up->parent;
                 }
+
                 batch.push_back(std::move(node));
                 fileCount_.fetch_add(1, std::memory_order_relaxed);
                 totalBytes_.fetch_add(entry.logicalSize, std::memory_order_relaxed);
@@ -169,13 +155,13 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                 std::lock_guard<std::mutex> lock{emitMutex_};
                 callbacks.onProgress(utf8Name(entry.fullPath));
             }
-            maybeFlush(job.id, false);
+            maybeFlush(job.acc, false);
         }
         finder->close();
-        maybeFlush(job.id, true);
+        maybeFlush(job.acc, true);
         queue_.taskDone();
     }
-    maybeFlush(0, true);
+    maybeFlush(nullptr, true);
 }
 
 EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCallbacks& callbacks)
@@ -187,11 +173,14 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     progressTick_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
     queue_.reset();
+    DirAcc* rootAcc = nullptr;
     {
-        std::lock_guard<std::mutex> lock{mapMutex_};
-        parentOf_.clear();
-        totals_.clear();
-        totals_[0] = DirAcc{};
+        std::lock_guard<std::mutex> lock{dirsMutex_};
+        allDirs_.clear();
+        auto rAcc = std::make_unique<DirAcc>();
+        rAcc->id = 0;
+        rootAcc = rAcc.get();
+        allDirs_.push_back(std::move(rAcc));
     }
 
     std::error_code ec{};
@@ -225,7 +214,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     }
     workers = (std::min)(workers, kMaxWorkers);
 
-    queue_.push(DirJob{root, 0});
+    queue_.push(DirJob{root, rootAcc});
     std::vector<std::thread> pool{};
     for (unsigned i{0}; i < workers; ++i) {
         pool.emplace_back([this, &callbacks] { workerMain(callbacks); });

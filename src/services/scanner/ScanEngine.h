@@ -88,21 +88,24 @@ public:
     void requestCancel();
 
 private:
-    struct DirJob {
-        std::filesystem::path path{};
+    struct DirAcc {
+        std::atomic_uint64_t logical{0};
+        std::atomic_uint64_t physical{0};
+        std::atomic_uint32_t files{0};
+        std::atomic_uint32_t folders{0};
+        DirAcc* parent{nullptr};
         std::uint32_t id{0};
     };
-    struct DirAcc {
-        std::uint64_t logical{0};
-        std::uint64_t physical{0};
-        std::uint32_t files{0};
-        std::uint32_t folders{0};
+
+    struct DirJob {
+        std::filesystem::path path{};
+        DirAcc* acc{nullptr};
     };
 
     std::unique_ptr<Finder> makeFinder();
     void workerMain(const EngineCallbacks& callbacks);
     void emitBatch(const EngineCallbacks& callbacks, std::vector<EngineNode>& batch);
-    void emitChain(const EngineCallbacks& callbacks, std::uint32_t leafId);
+    void emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc);
 
     BlockingQueue<DirJob> queue_{};
     std::atomic_uint32_t nextId_{1};
@@ -113,9 +116,8 @@ private:
     std::atomic_bool userCancelled_{false};
     BackendKind backend_{BackendKind::NativeDirectory};
     std::mutex emitMutex_{}; // serializes all callback invocations
-    std::mutex mapMutex_{}; // guards parentOf_ and totals_
-    std::unordered_map<std::uint32_t, std::uint32_t> parentOf_{};
-    std::unordered_map<std::uint32_t, DirAcc> totals_{};
+    std::mutex dirsMutex_{}; // guards allDirs_
+    std::vector<std::unique_ptr<DirAcc>> allDirs_{};
 };
 
 } // namespace usa::scanner
