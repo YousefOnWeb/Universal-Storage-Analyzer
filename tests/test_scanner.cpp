@@ -29,6 +29,11 @@ private slots:
 
         worker.startScanPath(QStringLiteral("t1"), tmp.path());
 
+        if (!errSpy.isEmpty()) {
+            for (const auto& args : errSpy) {
+                qInfo() << "scan error:" << args.at(1).toString();
+            }
+        }
         QVERIFY(errSpy.isEmpty());
         QCOMPARE(doneSpy.count(), 1);
         QVERIFY(!batchSpy.isEmpty());
