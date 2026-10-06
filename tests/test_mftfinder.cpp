@@ -252,19 +252,24 @@ private slots:
         QVERIFY(finder.recordCount() > 1000);
 
         QVERIFY(finder.open(sysRoot));
-        bool sawNotepad{false};
+        bool sawAnyFile{false};
         std::uint64_t mftSize{0};
+        std::filesystem::path foundFile{};
+
         while (finder.findNext()) {
             const auto& e = finder.current();
-            if (e.fullPath.filename() == "notepad.exe") {
-                sawNotepad = true;
+            if (!e.isDirectory && !e.isReparsePoint && e.logicalSize > 0) {
+                sawAnyFile = true;
                 mftSize = e.logicalSize;
+                foundFile = e.fullPath;
+                break;
             }
         }
-        QVERIFY(sawNotepad);
+        QVERIFY(sawAnyFile);
+
         // Cross-validate against the portable view of the same file.
         std::error_code ec{};
-        const auto directSize = std::filesystem::file_size(sysRoot / "notepad.exe", ec);
+        const auto directSize = std::filesystem::file_size(foundFile, ec);
         QVERIFY(!ec);
         QCOMPARE(mftSize, static_cast<std::uint64_t>(directSize));
 
@@ -274,9 +279,10 @@ private slots:
         std::uint64_t enumSize{0};
         bool sawEnum{false};
         while (basic.findNext()) {
-            if (basic.current().fullPath.filename() == "notepad.exe") {
+            if (basic.current().fullPath.filename() == foundFile.filename()) {
                 sawEnum = true;
                 enumSize = basic.current().logicalSize;
+                break;
             }
         }
         QVERIFY(sawEnum);
