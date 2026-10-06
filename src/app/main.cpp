@@ -89,7 +89,15 @@ int main(int argc, char* argv[])
     QCommandLineOption resetOpt{
         QStringLiteral("reset-test-data"),
         QStringLiteral("Clear test database (test builds / UNIVERSAL_STORAGE_ANALYZER_TEST=1 only).")};
-    parser.addOptions({smokeOpt, headlessOpt, resetOpt});
+    QCommandLineOption cliScanOpt{
+        QStringLiteral("cli-scan"),
+        QStringLiteral("Run scan in CLI mode without GUI."),
+        QStringLiteral("folder")};
+    QCommandLineOption noLogOpt{
+        QStringLiteral("no-log"),
+        QStringLiteral("Disable writing scan diagnostic log files.")};
+
+    parser.addOptions({smokeOpt, headlessOpt, resetOpt, cliScanOpt, noLogOpt});
     parser.addPositionalArgument(QStringLiteral("target"),
                                  QStringLiteral("Folder to scan on launch."),
                                  QStringLiteral("[folder]"));
@@ -121,6 +129,37 @@ int main(int argc, char* argv[])
     }
     if (parser.isSet(headlessOpt)) {
         return runHeadlessCheck();
+    }
+
+    if (parser.isSet(cliScanOpt)) {
+        app.setQuitOnLastWindowClosed(false);
+        ScannerService scanner{};
+        QString target = parser.value(cliScanOpt);
+        bool enableLog = !parser.isSet(noLogOpt);
+        
+        QTextStream out(stdout);
+        out << "Starting CLI scan for: " << target << "\n";
+        if (enableLog) out << "Diagnostic logging is enabled.\n";
+        else out << "Diagnostic logging is disabled.\n";
+        
+        QObject::connect(&scanner, &ScannerService::scanProgress, &app, [&out](const QString&, const QString& path) {
+            out << "Scanning: " << path << "\n";
+            out.flush();
+        });
+        
+        QObject::connect(&scanner, &ScannerService::scanFinished, &app, [&app, &out](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
+            out << "Scan finished. Files: " << files << " Dirs: " << dirs << " Bytes: " << bytes << "\n";
+            out.flush();
+            app.quit();
+        });
+        
+        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [&out](const QString&, const QString& err) {
+            out << "Error: " << err << "\n";
+            out.flush();
+        });
+
+        scanner.startScan(target, enableLog);
+        return app.exec();
     }
 
     ThemeManager themes{&app};

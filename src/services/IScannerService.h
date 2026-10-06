@@ -11,7 +11,7 @@ class IScannerService : public QObject {
 public:
     using QObject::QObject;
 
-    virtual QString startScan(const QString& targetPath) = 0;
+    virtual QString startScan(const QString& targetPath, bool enableLogging = true) = 0;
     virtual void toggleScanState(const QString& taskId, bool pause) = 0;
     virtual void cancelScan(const QString& taskId) = 0;
 

@@ -4,6 +4,8 @@
 #include <mutex>
 #include <vector>
 
+#include "ScanLogger.h"
+
 using usa::scanner::EngineDirSummary;
 using usa::scanner::EngineNode;
 
@@ -22,7 +24,7 @@ void LocalScannerWorker::requestCancel()
     engine_.requestCancel();
 }
 
-void LocalScannerWorker::startScanPath(const QString& taskId, const QString& targetPath)
+void LocalScannerWorker::startScanPath(const QString& taskId, const QString& targetPath, bool enableLogging)
 {
     emit scanStarted(taskId, targetPath);
 
@@ -80,6 +82,9 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
             emit nodesDiscovered(taskId, QVector<FileRecord>(pending.begin(), pending.end()));
             pending.clear();
         }
+    }
+    if (enableLogging) {
+        ScanLogger::writeLog(taskId, targetPath, result);
     }
     emit scanFinished(taskId, result.fileCount, result.dirCount, result.totalBytes);
 }

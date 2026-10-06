@@ -16,12 +16,12 @@ public:
     ScannerService(const ScannerService&) = delete;
     ScannerService& operator=(const ScannerService&) = delete;
 
-    QString startScan(const QString& targetPath) override;
+    QString startScan(const QString& targetPath, bool enableLogging = true) override;
     void toggleScanState(const QString& taskId, bool pause) override;
     void cancelScan(const QString& taskId) override;
 
 signals:
-    void startRequested(const QString& taskId, const QString& targetPath);
+    void startRequested(const QString& taskId, const QString& targetPath, bool enableLogging);
     void pauseRequested(bool paused);
     void cancelRequested();
     // Re-emitted worker events for UI consumption:

@@ -24,7 +24,7 @@ public:
     explicit LocalScannerWorker(QObject* parent = nullptr);
 
 public slots:
-    void startScanPath(const QString& taskId, const QString& targetPath);
+    void startScanPath(const QString& taskId, const QString& targetPath, bool enableLogging = true);
     void requestPause(bool paused);
     void requestCancel();
 

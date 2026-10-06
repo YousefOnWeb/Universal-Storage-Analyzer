@@ -33,10 +33,10 @@ ScannerService::~ScannerService()
     worker_->deleteLater();
 }
 
-QString ScannerService::startScan(const QString& targetPath)
+QString ScannerService::startScan(const QString& targetPath, bool enableLogging)
 {
     activeTaskId_ = QStringLiteral("scan-%1").arg(++taskCounter_);
-    emit startRequested(activeTaskId_, targetPath);
+    emit startRequested(activeTaskId_, targetPath, enableLogging);
     return activeTaskId_;
 }
 
