@@ -129,10 +129,17 @@ bool readBootSector(const std::wstring& volumePath, std::uint64_t& bytesPerSecto
 
 struct MftExtent {
     std::uint64_t fileOffset{0}; // byte offset within the $MFT stream
+    std::uint64_t diskOffset{0}; // byte offset on the volume
     std::uint64_t length{0};
 };
 
-bool getMftExtents(HANDLE mftHandle, std::uint64_t clusterSize, std::vector<MftExtent>& out)
+// Enumerates the $MFT's storage extents via the volume handle. Quirk this
+// relies on (measured, not assumed): the query reports ERROR_HANDLE_EOF
+// together with a final data chunk when the walk reaches end of stream,
+// so EOF-with-data means "done", not "failed". Only MORE_DATA continues
+// the walk. On any return without usable data, error carries the cause.
+bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExtent>& out,
+                   std::string& error)
 {
     struct Input {
         LARGE_INTEGER StartingVcn{};
@@ -145,48 +152,60 @@ bool getMftExtents(HANDLE mftHandle, std::uint64_t clusterSize, std::vector<MftE
     constexpr DWORD kOutSize{64 * 1024};
     std::vector<unsigned char> outBuf(kOutSize);
     std::uint64_t vcn{0};
-    for (;;) {
+    for (int round{0}; round < 100000; ++round) {
         Input in{};
         in.StartingVcn.QuadPart = static_cast<LONGLONG>(vcn);
         DWORD returned{0};
-        const BOOL ok = DeviceIoControl(mftHandle, FSCTL_GET_RETRIEVAL_POINTERS, &in, sizeof(in),
+        SetLastError(ERROR_SUCCESS);
+        const BOOL ok = DeviceIoControl(volume, FSCTL_GET_RETRIEVAL_POINTERS, &in, sizeof(in),
                                         outBuf.data(), kOutSize, &returned, nullptr);
         const DWORD err = ok ? ERROR_SUCCESS : GetLastError();
-        if (!ok && err != ERROR_MORE_DATA) {
+        if (!ok && err != ERROR_MORE_DATA && err != ERROR_HANDLE_EOF) {
+            error = "extent query failed (win32=" + std::to_string(err) + ")";
             return false;
         }
-        if (returned < 16) {
-            return false;
-        }
-        std::uint32_t count{0};
-        std::memcpy(&count, outBuf.data(), sizeof(count));
-        const auto* extents = reinterpret_cast<const Extent*>(outBuf.data() + 16);
-        const std::size_t available = (returned - 16) / sizeof(Extent);
-        if (count > available) {
-            return false;
-        }
-        std::uint64_t prevVcn = vcn;
-        for (std::uint32_t i{0}; i < count; ++i) {
-            const std::uint64_t nextVcn = static_cast<std::uint64_t>(extents[i].NextVcn.QuadPart);
-            const std::int64_t lcn = static_cast<std::int64_t>(extents[i].Lcn.QuadPart);
-            if (nextVcn > prevVcn && lcn >= 0) {
-                MftExtent e{};
-                e.fileOffset = prevVcn * clusterSize;
-                e.length = (nextVcn - prevVcn) * clusterSize;
-                out.push_back(e);
+        const std::size_t before = out.size();
+        if (returned >= 16) {
+            std::uint32_t count{0};
+            std::memcpy(&count, outBuf.data(), sizeof(count));
+            const auto* extents = reinterpret_cast<const Extent*>(outBuf.data() + 16);
+            const std::size_t available = (returned - 16) / sizeof(Extent);
+            if (count > available) {
+                error = "extent count exceeds returned bytes";
+                return false;
             }
-            prevVcn = nextVcn;
-        }
-        if (!ok) { // ERROR_MORE_DATA handled above; success with full buffer?
+            std::uint64_t prevVcn = vcn;
+            for (std::uint32_t i{0}; i < count; ++i) {
+                const std::uint64_t nextVcn =
+                    static_cast<std::uint64_t>(extents[i].NextVcn.QuadPart);
+                const std::int64_t lcn = static_cast<std::int64_t>(extents[i].Lcn.QuadPart);
+                if (nextVcn > prevVcn && lcn >= 0) {
+                    MftExtent e{};
+                    e.fileOffset = prevVcn * clusterSize;
+                    e.diskOffset = static_cast<std::uint64_t>(lcn) * clusterSize;
+                    e.length = (nextVcn - prevVcn) * clusterSize;
+                    out.push_back(e);
+                }
+                prevVcn = nextVcn;
+            }
             vcn = prevVcn;
-            if (err == ERROR_SUCCESS) {
-                break;
-            }
-            continue;
+        } else if (!ok) {
+            error = "extent query returned no data (win32=" + std::to_string(err) + ")";
+            return false;
         }
-        break;
+        if (ok || err == ERROR_HANDLE_EOF) {
+            break; // complete in one shot, or walked to end of stream
+        }
+        if (out.size() == before) {
+            error = "extent walk stalled (MORE_DATA without new extents)";
+            return false;
+        }
     }
-    return !out.empty();
+    if (out.empty()) {
+        error = "no MFT extents enumerated";
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -271,21 +290,22 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     if (volume.h == INVALID_HANDLE_VALUE) {
         return fail("volume open (raw device)");
     }
-    // Open $MFT itself by its well-known file ID (0). Retrieval queries and
-    // reads below are stream-relative on this handle.
-    FILE_ID_DESCRIPTOR mftId{};
-    mftId.dwSize = sizeof(mftId);
-    mftId.Type = FileIdType;
-    mftId.FileId.QuadPart = 0;
-    RaiiHandle mft{OpenFileById(volume.h, &mftId, GENERIC_READ,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                               FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN)};
-    if (mft.h == INVALID_HANDLE_VALUE) {
-        return fail("MFT open by file ID");
+    // Reference length for the walk below: the extents must cover at least
+    // the MFT's valid data, otherwise the walk stopped early.
+    std::uint64_t mftValidLength{0};
+    {
+        NTFS_VOLUME_DATA_BUFFER volData{};
+        DWORD volReturned{0};
+        if (DeviceIoControl(volume.h, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volData,
+                            sizeof(volData), &volReturned, nullptr)) {
+            mftValidLength = static_cast<std::uint64_t>(volData.MftValidDataLength.QuadPart);
+        }
     }
     std::vector<MftExtent> extents{};
-    if (!getMftExtents(mft.h, clusterSize, extents)) {
-        return fail("retrieval pointers (MFT extents)");
+    std::string extentError{};
+    if (!getMftExtents(volume.h, clusterSize, extents, extentError)) {
+        lastError_ = "retrieval pointers (MFT extents): " + extentError;
+        return false;
     }
     std::uint64_t total{0};
     for (const auto& e : extents) {
@@ -294,8 +314,13 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     if (total == 0 || total > kMaxVolumeBytes || total % recordSize != 0) {
         return fail("implausible MFT size");
     }
+    if (mftValidLength > 0 && total < mftValidLength) {
+        return fail("truncated extent walk (below valid data length)");
+    }
 
-    // Unbuffered I/O needs page-aligned memory.
+    // Bulk sequential reads through the plain volume handle. Unbuffered
+    // I/O is unnecessary here: extents arrive in stream order and OS
+    // readahead covers it; page-aligned memory is kept regardless.
     void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(total), MEM_COMMIT | MEM_RESERVE,
                              PAGE_READWRITE);
     if (raw == nullptr) {
@@ -306,7 +331,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         std::uint64_t done{0};
         while (done < e.length) {
             const std::uint64_t step = (std::min)(e.length - done, kReadChunk);
-            if (!readExact(mft.h, e.fileOffset + done, image + e.fileOffset + done, step)) {
+            if (!readExact(volume.h, e.diskOffset + done, image + e.fileOffset + done, step)) {
                 VirtualFree(raw, 0, MEM_RELEASE);
                 return fail("MFT extent read");
             }
