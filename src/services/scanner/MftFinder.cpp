@@ -133,78 +133,178 @@ struct MftExtent {
     std::uint64_t length{0};
 };
 
-// Enumerates the $MFT's storage extents via the volume handle. Quirk this
-// relies on (measured, not assumed): the query reports ERROR_HANDLE_EOF
-// together with a final data chunk when the walk reaches end of stream,
-// so EOF-with-data means "done", not "failed". Only MORE_DATA continues
-// the walk. On any return without usable data, error carries the cause.
+// Enumerates the $MFT's storage extents via the volume handle.
+// Replaces the old FSCTL_GET_RETRIEVAL_POINTERS approach with FSCTL_GET_NTFS_FILE_RECORD,
+// which is the supported user-mode mechanism to bypass file open restrictions on modern Windows.
 bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExtent>& out,
                    std::string& error)
 {
-    struct Input {
-        LARGE_INTEGER StartingVcn{};
-    };
-    struct Extent {
-        LARGE_INTEGER NextVcn{};
-        LARGE_INTEGER Lcn{};
-    };
-    // Big enough for dozens of extents per call.
-    constexpr DWORD kOutSize{64 * 1024};
-    std::vector<unsigned char> outBuf(kOutSize);
-    std::uint64_t vcn{0};
-    for (int round{0}; round < 100000; ++round) {
-        Input in{};
-        in.StartingVcn.QuadPart = static_cast<LONGLONG>(vcn);
+    // A helper to fetch a specific MFT record by its FRN.
+    auto fetchRecord = [&](std::uint64_t frn, std::vector<unsigned char>& recordOut) -> bool {
+        NTFS_FILE_RECORD_INPUT_BUFFER in{};
+        in.FileReferenceNumber.QuadPart = static_cast<LONGLONG>(frn);
+        // MFT records are typically 1KB or 4KB. Add space for the output header.
+        std::vector<unsigned char> outBuf(sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) + 4096);
         DWORD returned{0};
         SetLastError(ERROR_SUCCESS);
-        const BOOL ok = DeviceIoControl(volume, FSCTL_GET_RETRIEVAL_POINTERS, &in, sizeof(in),
-                                        outBuf.data(), kOutSize, &returned, nullptr);
-        const DWORD err = ok ? ERROR_SUCCESS : GetLastError();
-        if (!ok && err != ERROR_MORE_DATA && err != ERROR_HANDLE_EOF) {
-            error = "extent query failed (win32=" + std::to_string(err) + ")";
+        if (!DeviceIoControl(volume, FSCTL_GET_NTFS_FILE_RECORD, &in, sizeof(in),
+                             outBuf.data(), static_cast<DWORD>(outBuf.size()), &returned, nullptr)) {
             return false;
         }
-        const std::size_t before = out.size();
-        if (returned >= 16) {
-            std::uint32_t count{0};
-            std::memcpy(&count, outBuf.data(), sizeof(count));
-            const auto* extents = reinterpret_cast<const Extent*>(outBuf.data() + 16);
-            const std::size_t available = (returned - 16) / sizeof(Extent);
-            if (count > available) {
-                error = "extent count exceeds returned bytes";
-                return false;
+        if (returned < sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER)) {
+            return false;
+        }
+        auto* header = reinterpret_cast<PNTFS_FILE_RECORD_OUTPUT_BUFFER>(outBuf.data());
+        if (header->FileRecordLength < 512 || header->FileRecordLength > 4096) {
+            return false;
+        }
+        recordOut.assign(header->FileRecordBuffer, header->FileRecordBuffer + header->FileRecordLength);
+        return true;
+    };
+
+    struct DataExtentBlob {
+        std::uint64_t lowestVcn;
+        std::vector<unsigned char> runsBytes;
+    };
+    std::vector<DataExtentBlob> dataBlobs;
+
+    // A helper to parse the $DATA runs from a raw MFT record buffer.
+    auto parseRecordForData = [&](const std::vector<unsigned char>& recordBuffer,
+                                  std::vector<std::uint64_t>& extensionFrns) -> bool {
+        const unsigned char* p = recordBuffer.data();
+        const std::size_t recordSize = recordBuffer.size();
+        if (recordSize < 512 || std::memcmp(p, "FILE", 4) != 0) {
+            return false;
+        }
+        const std::uint16_t attrOffset = *reinterpret_cast<const std::uint16_t*>(p + 20);
+        std::size_t off = attrOffset;
+        while (off + 8 <= recordSize) {
+            const std::uint32_t type = *reinterpret_cast<const std::uint32_t*>(p + off);
+            if (type == 0xFFFFFFFFU) {
+                break;
             }
-            std::uint64_t prevVcn = vcn;
-            for (std::uint32_t i{0}; i < count; ++i) {
-                const std::uint64_t nextVcn =
-                    static_cast<std::uint64_t>(extents[i].NextVcn.QuadPart);
-                const std::int64_t lcn = static_cast<std::int64_t>(extents[i].Lcn.QuadPart);
-                if (nextVcn > prevVcn && lcn >= 0) {
-                    MftExtent e{};
-                    e.fileOffset = prevVcn * clusterSize;
-                    e.diskOffset = static_cast<std::uint64_t>(lcn) * clusterSize;
-                    e.length = (nextVcn - prevVcn) * clusterSize;
-                    out.push_back(e);
+            const std::uint32_t len = *reinterpret_cast<const std::uint32_t*>(p + off + 4);
+            if (len < 8 || off + len > recordSize || off + len <= off) {
+                break;
+            }
+            const bool nonResident = p[off + 8] != 0;
+            const std::uint8_t nameLen = p[off + 9];
+
+            if (type == 0x20) { // $ATTRIBUTE_LIST
+                if (!nonResident) {
+                    const std::uint32_t contentLen = *reinterpret_cast<const std::uint32_t*>(p + off + 16);
+                    const std::uint16_t contentOff = *reinterpret_cast<const std::uint16_t*>(p + off + 20);
+                    std::size_t listOff = off + contentOff;
+                    const std::size_t listEnd = listOff + contentLen;
+                    while (listOff + 26 <= listEnd && listOff + 26 <= recordSize) {
+                        const std::uint32_t entryType = *reinterpret_cast<const std::uint32_t*>(p + listOff);
+                        const std::uint16_t entryLen = *reinterpret_cast<const std::uint16_t*>(p + listOff + 4);
+                        if (entryLen < 26 || listOff + entryLen > listEnd) {
+                            break;
+                        }
+                        if (entryType == 0x80) { // $DATA attribute piece
+                            const std::uint64_t ref = *reinterpret_cast<const std::uint64_t*>(p + listOff + 16);
+                            const std::uint64_t extFrn = ref & 0xFFFFFFFFFFFFULL;
+                            if (extFrn != 0) { // skip base record if listed
+                                extensionFrns.push_back(extFrn);
+                            }
+                        }
+                        listOff += entryLen;
+                    }
                 }
-                prevVcn = nextVcn;
+            } else if (type == 0x80 && nameLen == 0) { // Unnamed $DATA
+                if (nonResident) {
+                    const std::uint16_t runOff = *reinterpret_cast<const std::uint16_t*>(p + off + 32);
+                    const std::size_t roff = off + runOff;
+                    const std::size_t rend = off + len;
+                    std::uint64_t currentVcn = *reinterpret_cast<const std::uint64_t*>(p + off + 16); // Lowest VCN
+                    if (rend > roff) {
+                        dataBlobs.push_back({currentVcn, std::vector<unsigned char>(p + roff, p + rend)});
+                    }
+                }
             }
-            vcn = prevVcn;
-        } else if (!ok) {
-            error = "extent query returned no data (win32=" + std::to_string(err) + ")";
-            return false;
+            off += len;
         }
-        if (ok || err == ERROR_HANDLE_EOF) {
-            break; // complete in one shot, or walked to end of stream
-        }
-        if (out.size() == before) {
-            error = "extent walk stalled (MORE_DATA without new extents)";
-            return false;
-        }
-    }
-    if (out.empty()) {
-        error = "no MFT extents enumerated";
+        return true;
+    };
+
+    std::vector<unsigned char> baseRecord;
+    if (!fetchRecord(0, baseRecord)) {
+        error = "failed to read MFT base record (win32=" + std::to_string(GetLastError()) + ")";
         return false;
     }
+
+    std::vector<std::uint64_t> extensionFrns;
+    if (!parseRecordForData(baseRecord, extensionFrns)) {
+        error = "failed to parse MFT base record";
+        return false;
+    }
+
+    std::sort(extensionFrns.begin(), extensionFrns.end());
+    extensionFrns.erase(std::unique(extensionFrns.begin(), extensionFrns.end()), extensionFrns.end());
+
+    for (std::uint64_t frn : extensionFrns) {
+        std::vector<unsigned char> extRecord;
+        if (fetchRecord(frn, extRecord)) {
+            // Pass a dummy vector since we don't expect nested $ATTRIBUTE_LISTs.
+            std::vector<std::uint64_t> dummy; 
+            parseRecordForData(extRecord, dummy);
+        } else {
+            error = "failed to read MFT extension record " + std::to_string(frn);
+            return false;
+        }
+    }
+
+    if (dataBlobs.empty()) {
+        error = "no $DATA runs found in MFT records";
+        return false;
+    }
+
+    // Sort extents by Lowest VCN to stitch them sequentially
+    std::sort(dataBlobs.begin(), dataBlobs.end(), [](const DataExtentBlob& a, const DataExtentBlob& b) {
+        return a.lowestVcn < b.lowestVcn;
+    });
+
+    std::int64_t prevLcn = 0;
+    for (const auto& blob : dataBlobs) {
+        std::vector<detail::DataRun> runs{};
+        detail::parseDataRuns(blob.runsBytes.data(), blob.runsBytes.size(), runs);
+        
+        std::uint64_t currentVcn = blob.lowestVcn;
+        for (const auto& run : runs) {
+            if (!run.sparse && run.lengthClusters > 0) {
+                // For extension records, the first run's delta is relative to the last LCN 
+                // of the preceding attribute extent. Our parseDataRuns assumes base 0, 
+                // so we just add prevLcn to correct it.
+                std::int64_t realLcn = run.startLcn + prevLcn;
+                MftExtent e{};
+                e.fileOffset = currentVcn * clusterSize;
+                e.diskOffset = static_cast<std::uint64_t>(realLcn) * clusterSize;
+                e.length = run.lengthClusters * clusterSize;
+                out.push_back(e);
+            }
+            currentVcn += run.lengthClusters;
+        }
+        
+        // Find the last non-sparse run to update prevLcn for the next attribute extent
+        for (auto it = runs.rbegin(); it != runs.rend(); ++it) {
+            if (!it->sparse) {
+                prevLcn += it->startLcn;
+                break;
+            }
+        }
+    }
+
+    if (out.empty()) {
+        error = "no usable $DATA runs parsed";
+        return false;
+    }
+
+    // Sort the final physical extents by fileOffset for reading
+    std::sort(out.begin(), out.end(), [](const MftExtent& a, const MftExtent& b) {
+        return a.fileOffset < b.fileOffset;
+    });
+
     return true;
 }
 
