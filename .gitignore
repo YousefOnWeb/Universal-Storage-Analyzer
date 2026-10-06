@@ -15,3 +15,8 @@ Testing/
 .vscode/
 .idea/
 *.exe
+
+# Per-scan diagnostic logs (ScanLogger writes under <AppData>/scan-logs;
+# these cover relocated/override outputs).
+scan_*.log
+scan-logs/

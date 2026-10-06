@@ -3,6 +3,7 @@ add_executable(usa
     domain/FileTree.cpp
     services/IScannerService.cpp
     services/LocalScannerWorker.cpp
+    services/ScanLogger.cpp
     services/ScannerService.cpp
     services/DatabaseManager.cpp
     services/scanner/DirectoryFinder.cpp

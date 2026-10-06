@@ -7,6 +7,7 @@ function(add_usa_test name source label)
     target_sources(${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/src/domain/FileTree.cpp
         ${CMAKE_SOURCE_DIR}/src/services/LocalScannerWorker.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/ScanLogger.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/MftFinder.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/MftRecord.cpp
