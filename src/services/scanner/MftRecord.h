@@ -1,0 +1,37 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+
+// Portable NTFS record parsing (pure byte wrangling, no OS calls).
+// Shared by the direct volume reader; unit-tested everywhere without
+// elevation by feeding hand-crafted record images.
+namespace usa::scanner::detail {
+
+struct MftRecord {
+    std::uint32_t number{0};
+    std::uint16_t sequence{0};
+    std::uint32_t parentNumber{0};
+    std::uint16_t parentSequence{0};
+    bool isDirectory{false};
+    bool inUse{false};
+    bool isReparsePoint{false};
+    // True when physicalSize holds a cluster count (non-resident data
+    // runs); the caller scales it by bytes-per-cluster.
+    bool physicalIsClusterCount{false};
+    std::wstring name{};
+    std::uint64_t logicalSize{0};
+    std::uint64_t physicalSize{0};
+    std::uint64_t lastWriteTs{0}; // Unix seconds
+};
+
+std::uint64_t filetimeToUnix(std::uint64_t filetime);
+
+// Parse one raw MFT record image. Returns true and fills rec when the
+// record is usable (valid fixup, in use, has a file name). Never reads
+// outside [base, base + recordSize).
+bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint32_t number,
+                    MftRecord& rec);
+
+} // namespace usa::scanner::detail

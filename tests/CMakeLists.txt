@@ -18,3 +18,7 @@ add_usa_test(test_scanner test_scanner.cpp integration)
 add_usa_test(test_blockingqueue test_blockingqueue.cpp unit)
 add_usa_test(test_directoryfinder test_directoryfinder.cpp integration
     ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp)
+add_usa_test(test_mftfinder test_mftfinder.cpp integration
+    ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/scanner/MftFinder.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/scanner/MftRecord.cpp)
