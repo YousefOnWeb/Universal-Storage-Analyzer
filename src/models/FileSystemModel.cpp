@@ -155,6 +155,7 @@ void FileSystemModel::clear()
 {
     beginResetModel();
     owned_.clear();
+    pendingSummaries_.clear();
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
@@ -170,6 +171,7 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
 {
     beginResetModel();
     owned_.clear();
+    pendingSummaries_.clear();
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
@@ -223,6 +225,14 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
             totalLogical_ += raw->logicalSize;
         }
 
+        // A summary may have arrived before its node (see
+        // onBranchMetricsUpdated); apply it now so nothing is lost.
+        if (const auto pending = pendingSummaries_.find(raw->id);
+            pending != pendingSummaries_.end()) {
+            applyMetrics(raw, pending->second);
+            pendingSummaries_.erase(pending);
+        }
+
         endInsertRows();
     }
 }
@@ -231,17 +241,29 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
 {
     const auto it = owned_.find(metrics.nodeId);
     if (it == owned_.end()) {
+        // Node batches are chunked while summaries stream immediately, so a
+        // summary can precede its node. Stash it; the insert path applies it.
+        pendingSummaries_[metrics.nodeId] = metrics;
         return;
     }
     // Replace semantics: the engine reports absolute running totals per
     // directory (already propagated up the ancestor chain engine-side), so
     // the model stores them verbatim. Adding here would double-count.
     Node* node = it->second.get();
+    applyMetrics(node, metrics);
+    refreshNode(indexForNodeId(node->id), node);
+}
+
+void FileSystemModel::applyMetrics(Node* node, const BranchMetrics& metrics)
+{
     node->logicalSize = metrics.logicalSize;
     node->allocatedSize = metrics.allocatedSize;
     node->fileCount = metrics.fileCount;
     node->folderCount = metrics.folderCount;
-    const QModelIndex top = indexForNodeId(node->id);
+}
+
+void FileSystemModel::refreshNode(const QModelIndex& top, Node* node)
+{
     if (top.isValid()) {
         const QModelIndex bottom =
             createIndex(top.row(), ColCount - 1, static_cast<void*>(node));

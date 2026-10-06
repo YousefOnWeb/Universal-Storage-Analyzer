@@ -66,8 +66,14 @@ private:
     };
 
     Node* nodeFromIndex(const QModelIndex& index) const;
+    void applyMetrics(Node* node, const BranchMetrics& metrics);
+    void refreshNode(const QModelIndex& top, Node* node);
 
     std::unordered_map<quint32, std::unique_ptr<Node>> owned_{};
+    // Summaries that arrived before their node (node batches are chunked
+    // for signal efficiency while summaries stream immediately). Applied
+    // on insert; latest wins.
+    std::unordered_map<quint32, BranchMetrics> pendingSummaries_{};
     Node* root_{nullptr};
     quint64 totalLogical_{0};
 };
