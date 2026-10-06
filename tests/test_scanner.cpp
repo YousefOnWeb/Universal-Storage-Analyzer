@@ -38,8 +38,9 @@ private slots:
             totalRecords += static_cast<qlonglong>(
                 args.at(1).value<QVector<FileRecord>>().size());
         }
-        // root + a.txt + sub + sub/b.bin
-        QCOMPARE(totalRecords, static_cast<qlonglong>(4));
+        // a.txt + sub + sub/b.bin (the root anchor comes from scanStarted,
+        // not from node batches)
+        QCOMPARE(totalRecords, static_cast<qlonglong>(3));
 
         const auto done = doneSpy.at(0);
         QCOMPARE(done.at(1).toULongLong(), static_cast<qulonglong>(2)); // files

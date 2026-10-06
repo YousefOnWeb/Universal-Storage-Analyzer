@@ -215,14 +215,12 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
         owned_.emplace(raw->id, std::move(node));
         parentNode->children.push_back(raw);
 
-        // Live aggregation: files contribute size upward immediately so the
-        // tree shows growing totals while the scan runs.
+        // Aggregation lives in the scan engine: it streams absolute
+        // per-directory totals via branchMetricsUpdated(), which this model
+        // stores verbatim. Per-file upward propagation here would count
+        // every byte twice, so nodes are stored exactly as delivered.
         if (!raw->isDirectory) {
-            propagateToAncestors(parentNode, raw->logicalSize, raw->allocatedSize, true,
-                                 false);
             totalLogical_ += raw->logicalSize;
-        } else {
-            propagateToAncestors(parentNode, 0, 0, false, true);
         }
 
         endInsertRows();
@@ -235,19 +233,14 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
     if (it == owned_.end()) {
         return;
     }
+    // Replace semantics: the engine reports absolute running totals per
+    // directory (already propagated up the ancestor chain engine-side), so
+    // the model stores them verbatim. Adding here would double-count.
     Node* node = it->second.get();
-    node->logicalSize += metrics.logicalSize;
-    node->allocatedSize += metrics.allocatedSize;
-    node->fileCount += metrics.fileCount;
-    node->folderCount += metrics.folderCount;
-    if (node->parent != nullptr && node != root_) {
-        propagateToAncestors(node->parent, metrics.logicalSize, metrics.allocatedSize, false,
-                             false);
-        // Counts were already propagated per-node on discovery; branch totals
-        // here only carry sizes to avoid double counting.
-    } else if (node == root_) {
-        totalLogical_ = node->logicalSize;
-    }
+    node->logicalSize = metrics.logicalSize;
+    node->allocatedSize = metrics.allocatedSize;
+    node->fileCount = metrics.fileCount;
+    node->folderCount = metrics.folderCount;
     const QModelIndex top = indexForNodeId(node->id);
     if (top.isValid()) {
         const QModelIndex bottom =
@@ -259,23 +252,4 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
 FileSystemModel::Node* FileSystemModel::nodeFromIndex(const QModelIndex& index) const
 {
     return static_cast<Node*>(index.internalPointer());
-}
-
-void FileSystemModel::propagateToAncestors(Node* start, quint64 logicalDelta,
-                                           quint64 allocatedDelta, bool countFile,
-                                           bool countFolder)
-{
-    for (Node* cur{start}; cur != nullptr; cur = cur->parent) {
-        cur->logicalSize += logicalDelta;
-        cur->allocatedSize += allocatedDelta;
-        if (countFile) {
-            ++cur->fileCount;
-        }
-        if (countFolder) {
-            ++cur->folderCount;
-        }
-        if (cur == root_) {
-            break;
-        }
-    }
 }

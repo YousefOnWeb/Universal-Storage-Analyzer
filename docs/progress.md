@@ -11,6 +11,10 @@
 ## Decisions
 
 - ADR 0001: portable `std::filesystem` traversal first; MFT fast path later.
+- ADR 0002: dual-backend enumeration (`Finder` + direct volume reader with
+  automatic native fallback) coordinated by `ScanEngine` over a
+  `BlockingQueue` pool; engine owns aggregation, model stores verbatim
+  (fixes latent double-count of directory totals).
 
 ## Next tasks
 

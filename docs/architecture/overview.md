@@ -4,11 +4,16 @@
 UI (Widgets, main thread) ──signals/slots──▶ ScannerService (GUI thread)
         ▲                                            │ queued invoke
         │ batches/metrics                            ▼
-FileSystemModel ◀──────────────────── LocalScannerWorker (own QThread)
-        │
+FileSystemModel ◀──────────────────── LocalScannerWorker (own QThread,
+        │                              thin Qt bridge: engine → signals)
         ├── DetailsTableModel (selection projection) + QSortFilterProxyModel
         └── QTreeView / QTableView (virtualized, visible rows only)
 
+Scan engine (Qt-free, src/services/scanner/):
+  ScanEngine ──picks per root──▶ DirectMft │ NativeDirectory (Finder)
+        │  BlockingQueue<DirJob> → worker pool (≤16, one Finder each)
+        │  node batches (128 / 100 ms) + absolute dir summaries up the chain
+        ▼
 Domain (Qt-free): FSNode + FileTree — owned by whoever needs pure logic/tests.
 Infrastructure: QtSql SQLite store (V1 migration), QSettings for prefs.
 ```

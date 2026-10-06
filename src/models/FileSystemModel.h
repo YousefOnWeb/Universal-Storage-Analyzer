@@ -66,8 +66,6 @@ private:
     };
 
     Node* nodeFromIndex(const QModelIndex& index) const;
-    void propagateToAncestors(Node* start, quint64 logicalDelta, quint64 allocatedDelta,
-                              bool countFile, bool countFolder);
 
     std::unordered_map<quint32, std::unique_ptr<Node>> owned_{};
     Node* root_{nullptr};

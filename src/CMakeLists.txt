@@ -5,6 +5,10 @@ add_executable(usa
     services/LocalScannerWorker.cpp
     services/ScannerService.cpp
     services/DatabaseManager.cpp
+    services/scanner/DirectoryFinder.cpp
+    services/scanner/MftFinder.cpp
+    services/scanner/MftRecord.cpp
+    services/scanner/ScanEngine.cpp
     models/FileSystemModel.cpp
     models/DetailsTableModel.cpp
     ui/ThemeManager.cpp

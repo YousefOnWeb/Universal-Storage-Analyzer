@@ -78,8 +78,23 @@ public:
 
     void waitUntilIdle()
     {
+        // Cancelled counts as idle: after requestCancel(), outstanding items
+        // are abandoned (workers exited) and the orchestrator must proceed
+        // to join them instead of waiting for taskDone() calls that will
+        // never come.
         std::unique_lock<std::mutex> lock{mutex_};
-        idle_.wait(lock, [this] { return pending_ == 0; });
+        idle_.wait(lock, [this] { return pending_ == 0 || cancelled_; });
+    }
+
+    // Restores a fresh queue. Call only when no worker is inside pop() —
+    // i.e. between engine runs, after all threads joined. Suspension is
+    // deliberately preserved: pause is UI mode state, not per-scan state.
+    void reset()
+    {
+        std::lock_guard<std::mutex> lock{mutex_};
+        queue_ = std::queue<T>{};
+        pending_ = 0;
+        cancelled_ = false;
     }
 
     void setSuspended(bool suspended)

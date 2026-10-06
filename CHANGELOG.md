@@ -2,6 +2,15 @@
 
 All notable user-facing changes are recorded here.
 
+## [Unreleased]
+
+### Changed
+
+- Core scanning is now multi-threaded with automatic backend selection:
+  direct volume reading when elevated on a supported volume, native
+  directory enumeration otherwise. Same UI, same results, higher
+  throughput; pause/cancel now take effect immediately mid-scan.
+
 ## [0.1.0] — 2026-10-04
 
 ### Added

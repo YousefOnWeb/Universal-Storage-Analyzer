@@ -7,8 +7,13 @@ ScannerService::ScannerService(QObject* parent)
 {
     worker_->moveToThread(thread_);
     connect(this, &ScannerService::startRequested, worker_, &LocalScannerWorker::startScanPath);
-    connect(this, &ScannerService::pauseRequested, worker_, &LocalScannerWorker::requestPause);
-    connect(this, &ScannerService::cancelRequested, worker_, &LocalScannerWorker::requestCancel);
+    // Pause/cancel bypass the worker event loop on purpose: the engine only
+    // touches thread-safe primitives, so a direct connection takes effect
+    // immediately even while a scan blocks the worker thread.
+    connect(this, &ScannerService::pauseRequested, worker_, &LocalScannerWorker::requestPause,
+            Qt::DirectConnection);
+    connect(this, &ScannerService::cancelRequested, worker_, &LocalScannerWorker::requestCancel,
+            Qt::DirectConnection);
 
     connect(worker_, &LocalScannerWorker::scanStarted, this, &ScannerService::scanStarted);
     connect(worker_, &LocalScannerWorker::nodesDiscovered, this, &ScannerService::nodesDiscovered);

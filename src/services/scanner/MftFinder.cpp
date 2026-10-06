@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstring>
 #include <cwchar>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -225,6 +226,22 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     if (drive.size() < 2 || drive[1] != L':') {
         return false; // not a drive-letter path; nothing to read directly
     }
+    // Process-wide volume cache: the engine's probe load warms it and all
+    // worker instances share the image instead of re-reading the volume.
+    // Volumes are effectively immutable during a scan; a rescan reloads
+    // only when the weak reference has expired.
+    static std::mutex cacheMutex{};
+    static std::unordered_map<std::wstring, std::weak_ptr<SharedVolume>> cache{};
+    {
+        const std::lock_guard<std::mutex> lock{cacheMutex};
+        const auto cached = cache.find(drive);
+        if (cached != cache.end()) {
+            if (auto shared = cached->second.lock()) {
+                volume_ = std::move(shared);
+                return true;
+            }
+        }
+    }
     if (volume_ && volume_->drivePrefix == drive) {
         return true; // cached
     }
@@ -333,6 +350,10 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     // The volume root must resolve or the image is unusable.
     if (shared->byNumber.find(kRootRecordNumber) == shared->byNumber.end()) {
         return false;
+    }
+    {
+        const std::lock_guard<std::mutex> lock{cacheMutex};
+        cache[drive] = shared;
     }
     volume_ = std::move(shared);
     return true;

@@ -2,11 +2,15 @@ function(add_usa_test name source label)
     add_executable(${name} ${source})
     target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(${name} PRIVATE Qt6::Test Qt6::Core Qt6::Widgets Qt6::Sql)
-    # Domain + worker sources reused without pulling the full GUI app.
-    # Extra per-test sources may follow the label (e.g. scanner engine).
+    # Domain + worker + scanner sources reused without pulling the GUI app.
+    # Extra per-test sources may follow the label.
     target_sources(${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/src/domain/FileTree.cpp
         ${CMAKE_SOURCE_DIR}/src/services/LocalScannerWorker.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/scanner/MftFinder.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/scanner/MftRecord.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/scanner/ScanEngine.cpp
         ${ARGN}
     )
     add_test(NAME ${name} COMMAND ${name})
@@ -16,9 +20,8 @@ endfunction()
 add_usa_test(test_filetree test_filetree.cpp unit)
 add_usa_test(test_scanner test_scanner.cpp integration)
 add_usa_test(test_blockingqueue test_blockingqueue.cpp unit)
-add_usa_test(test_directoryfinder test_directoryfinder.cpp integration
-    ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp)
-add_usa_test(test_mftfinder test_mftfinder.cpp integration
-    ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
-    ${CMAKE_SOURCE_DIR}/src/services/scanner/MftFinder.cpp
-    ${CMAKE_SOURCE_DIR}/src/services/scanner/MftRecord.cpp)
+add_usa_test(test_directoryfinder test_directoryfinder.cpp integration)
+add_usa_test(test_mftfinder test_mftfinder.cpp integration)
+add_usa_test(test_scanengine test_scanengine.cpp integration)
+add_usa_test(test_filesystemmodel test_filesystemmodel.cpp unit
+    ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp)

@@ -1,18 +1,25 @@
 #pragma once
 
-#include "IScannerService.h"
+#include <QObject>
+#include <QVector>
+
+#include <mutex>
+
+#include "scanner/ScanEngine.h"
 #include "ScanTypes.h"
 
-#include <QVector>
-#include <atomic>
-
-// Worker QObject moved to a dedicated QThread via moveToThread().
-// Never touches widgets; communicates only through queued signals/slots.
+// Thin Qt bridge over ScanEngine: translates backend-neutral engine output
+// into FileRecord batches and Qt signals. The engine does all traversal,
+// threading, batching, and aggregation; this class owns no scan state.
+//
+// Threading: startScanPath() blocks the worker thread inside
+// ScanEngine::run(). requestPause()/requestCancel() only touch the
+// engine's thread-safe primitives, so the service invokes them with a
+// direct connection and they take effect even mid-scan.
 class LocalScannerWorker : public QObject {
     Q_OBJECT
 public:
     static constexpr int kBatchSize = 500;
-    static constexpr quint64 kClusterSize = 4096;
 
     explicit LocalScannerWorker(QObject* parent = nullptr);
 
@@ -31,6 +38,6 @@ signals:
     void errorOccurred(const QString& taskId, const QString& message);
 
 private:
-    std::atomic_bool paused_{false};
-    std::atomic_bool cancelled_{false};
+    usa::scanner::ScanEngine engine_;
+    std::mutex pendingMutex_;
 };

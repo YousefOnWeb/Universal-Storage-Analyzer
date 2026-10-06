@@ -9,6 +9,10 @@ signal/slot boundaries (all `Qt::QueuedConnection` from worker to GUI).
 - `toggleScanState(taskId, pause)`
 - `cancelScan(taskId)` (cooperative; worker drains current directory entry)
 
+Pause/cancel use direct connections and touch only the engine's
+thread-safe primitives, so they take effect immediately even while a
+scan blocks the worker thread (no event-loop round trip).
+
 ## Engine → UI (events)
 
 - `scanStarted(taskId, targetPath)` — model resets root.
