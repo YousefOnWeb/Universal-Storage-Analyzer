@@ -1,9 +1,12 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QFile>
 #include <QSqlDatabase>
 #include <QStandardPaths>
 #include <QTextStream>
+
+#include <QDateTime>
 
 #include "../models/FileSystemModel.h"
 #include "../services/DatabaseManager.h"
@@ -12,7 +15,63 @@
 #include "../ui/MainWindow.h"
 #include "../ui/ThemeManager.h"
 
+static QFile* g_sessionLogFile = nullptr;
+
+void sessionLogHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    if (!g_sessionLogFile) return;
+    Q_UNUSED(context);
+    
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
+    QString level;
+    switch (type) {
+    case QtDebugMsg:    level = "DBG"; break;
+    case QtInfoMsg:     level = "INF"; break;
+    case QtWarningMsg:  level = "WRN"; break;
+    case QtCriticalMsg: level = "ERR"; break;
+    case QtFatalMsg:    level = "FTL"; break;
+    }
+    
+    QString logLine = QString("[%1] %2: %3\n").arg(timestamp, level, msg);
+    g_sessionLogFile->write(logLine.toUtf8());
+    g_sessionLogFile->flush();
+}
+
 namespace {
+
+// Owns the session debug log for the whole lifetime of main(), including
+// every early-return CLI path. Manual open/close leaked the handle and
+// dropped the closing line whenever main() returned early.
+struct SessionLogGuard {
+    SessionLogGuard()
+    {
+        const QString cfgDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QDir().mkpath(cfgDir + QStringLiteral("/session-logs"));
+        const QString logName = cfgDir + QStringLiteral("/session-logs/session-")
+            + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"))
+            + QStringLiteral(".log");
+        g_sessionLogFile = new QFile(logName);
+        if (g_sessionLogFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            qInstallMessageHandler(sessionLogHandler);
+            qInfo() << "Session debug log started. App Version:"
+                    << QCoreApplication::applicationVersion();
+        } else {
+            delete g_sessionLogFile;
+            g_sessionLogFile = nullptr;
+        }
+    }
+    ~SessionLogGuard()
+    {
+        if (g_sessionLogFile != nullptr) {
+            qInfo() << "Session debug log ended. Application closing.";
+            g_sessionLogFile->close();
+            delete g_sessionLogFile;
+            g_sessionLogFile = nullptr;
+        }
+    }
+    SessionLogGuard(const SessionLogGuard&) = delete;
+    SessionLogGuard& operator=(const SessionLogGuard&) = delete;
+};
 
 int runSmokeTest()
 {
@@ -74,6 +133,8 @@ int main(int argc, char* argv[])
     QApplication::setOrganizationName(QStringLiteral("UniversalStorageAnalyzer"));
     QApplication::setApplicationName(QStringLiteral("UniversalStorageAnalyzer"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+
+    SessionLogGuard sessionLog{};
 
     qRegisterMetaType<FileRecord>("FileRecord");
     qRegisterMetaType<QVector<FileRecord>>("QVector<FileRecord>");
@@ -147,15 +208,13 @@ int main(int argc, char* argv[])
             out.flush();
         });
         
-        QObject::connect(&scanner, &ScannerService::scanFinished, &app, [&app, &out](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
-            out << "Scan finished. Files: " << files << " Dirs: " << dirs << " Bytes: " << bytes << "\n";
-            out.flush();
+        QObject::connect(&scanner, &ScannerService::scanFinished, &app, [&app](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
+            qInfo() << "CLI Scan finished. Files:" << files << "Dirs:" << dirs << "Bytes:" << bytes;
             app.quit();
         });
         
-        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [&out](const QString&, const QString& err) {
-            out << "Error: " << err << "\n";
-            out.flush();
+        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [](const QString&, const QString& err) {
+            qCritical() << "CLI Error:" << err;
         });
 
         scanner.startScan(target, enableLog);
