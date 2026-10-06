@@ -49,16 +49,19 @@ struct RaiiHandle {
 
 bool readExact(HANDLE h, std::uint64_t offset, unsigned char* out, std::size_t bytes)
 {
+    // Positioned synchronous reads (the handle is opened without overlapped
+    // I/O, so SetFilePointerEx + ReadFile is the correct pairing).
     std::size_t done{0};
     while (done < bytes) {
-        OVERLAPPED ov{};
-        const std::uint64_t pos = offset + done;
-        ov.Offset = static_cast<DWORD>(pos & 0xFFFFFFFFULL);
-        ov.OffsetHigh = static_cast<DWORD>((pos >> 32) & 0xFFFFFFFFULL);
+        LARGE_INTEGER pos{};
+        pos.QuadPart = static_cast<LONGLONG>(offset + done);
+        if (!SetFilePointerEx(h, pos, nullptr, FILE_BEGIN)) {
+            return false;
+        }
         DWORD got{0};
         const DWORD want = static_cast<DWORD>(
             (std::min)(bytes - done, static_cast<std::size_t>(0x40000000)));
-        if (!ReadFile(h, out + done, want, &got, &ov) || got == 0) {
+        if (!ReadFile(h, out + done, want, &got, nullptr) || got == 0) {
             return false;
         }
         done += got;
@@ -126,11 +129,10 @@ bool readBootSector(const std::wstring& volumePath, std::uint64_t& bytesPerSecto
 
 struct MftExtent {
     std::uint64_t fileOffset{0}; // byte offset within the $MFT stream
-    std::uint64_t diskOffset{0}; // byte offset on the volume
     std::uint64_t length{0};
 };
 
-bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExtent>& out)
+bool getMftExtents(HANDLE mftHandle, std::uint64_t clusterSize, std::vector<MftExtent>& out)
 {
     struct Input {
         LARGE_INTEGER StartingVcn{};
@@ -147,7 +149,7 @@ bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExte
         Input in{};
         in.StartingVcn.QuadPart = static_cast<LONGLONG>(vcn);
         DWORD returned{0};
-        const BOOL ok = DeviceIoControl(volume, FSCTL_GET_RETRIEVAL_POINTERS, &in, sizeof(in),
+        const BOOL ok = DeviceIoControl(mftHandle, FSCTL_GET_RETRIEVAL_POINTERS, &in, sizeof(in),
                                         outBuf.data(), kOutSize, &returned, nullptr);
         const DWORD err = ok ? ERROR_SUCCESS : GetLastError();
         if (!ok && err != ERROR_MORE_DATA) {
@@ -170,7 +172,6 @@ bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExte
             if (nextVcn > prevVcn && lcn >= 0) {
                 MftExtent e{};
                 e.fileOffset = prevVcn * clusterSize;
-                e.diskOffset = static_cast<std::uint64_t>(lcn) * clusterSize;
                 e.length = (nextVcn - prevVcn) * clusterSize;
                 out.push_back(e);
             }
@@ -265,13 +266,25 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     (void)mftStartLcn; // located via retrieval pointers below, not the LCN hint
 
     RaiiHandle volume{CreateFileW(volumePath.c_str(), GENERIC_READ,
-                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                                 FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0,
+                                 nullptr)};
     if (volume.h == INVALID_HANDLE_VALUE) {
         return fail("volume open (raw device)");
     }
+    // Open $MFT itself by its well-known file ID (0). Retrieval queries and
+    // reads below are stream-relative on this handle.
+    FILE_ID_DESCRIPTOR mftId{};
+    mftId.dwSize = sizeof(mftId);
+    mftId.Type = FileIdType;
+    mftId.FileId.QuadPart = 0;
+    RaiiHandle mft{OpenFileById(volume.h, &mftId, GENERIC_READ,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN)};
+    if (mft.h == INVALID_HANDLE_VALUE) {
+        return fail("MFT open by file ID");
+    }
     std::vector<MftExtent> extents{};
-    if (!getMftExtents(volume.h, clusterSize, extents)) {
+    if (!getMftExtents(mft.h, clusterSize, extents)) {
         return fail("retrieval pointers (MFT extents)");
     }
     std::uint64_t total{0};
@@ -293,7 +306,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         std::uint64_t done{0};
         while (done < e.length) {
             const std::uint64_t step = (std::min)(e.length - done, kReadChunk);
-            if (!readExact(volume.h, e.diskOffset + done, image + e.fileOffset + done, step)) {
+            if (!readExact(mft.h, e.fileOffset + done, image + e.fileOffset + done, step)) {
                 VirtualFree(raw, 0, MEM_RELEASE);
                 return fail("MFT extent read");
             }
