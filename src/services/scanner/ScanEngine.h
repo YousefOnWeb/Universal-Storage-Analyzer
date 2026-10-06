@@ -47,6 +47,9 @@ struct EngineResult {
     std::uint64_t totalBytes{0};
     BackendKind backend{BackendKind::NativeDirectory};
     bool cancelled{false};
+    std::uint64_t durationMs{0};
+    std::uint64_t batchCount{0};
+    std::uint64_t errorCount{0};
 };
 
 struct EngineCallbacks {
@@ -112,6 +115,8 @@ private:
     std::atomic_uint64_t fileCount_{0};
     std::atomic_uint64_t dirCount_{0};
     std::atomic_uint64_t totalBytes_{0};
+    std::atomic_uint64_t batchCount_{0};
+    std::atomic_uint64_t errorCount_{0};
     std::atomic_uint64_t progressTick_{0};
     std::atomic_bool userCancelled_{false};
     BackendKind backend_{BackendKind::NativeDirectory};

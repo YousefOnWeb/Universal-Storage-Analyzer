@@ -87,6 +87,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
         if (!batch.empty()
             && (force || batch.size() >= kBatchNodes || now - lastFlush >= kFlushInterval)) {
             emitBatch(callbacks, batch);
+            batchCount_.fetch_add(1, std::memory_order_relaxed);
             emitChain(callbacks, chainLeaf);
             lastFlush = now;
         }
@@ -95,6 +96,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
     DirJob job{};
     while (queue_.pop(job)) {
         if (!finder->open(job.path)) {
+            errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
                 std::lock_guard<std::mutex> lock{emitMutex_};
                 callbacks.onError("Cannot enumerate directory: " + utf8Name(job.path));
@@ -171,7 +173,11 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     dirCount_.store(0, std::memory_order_relaxed);
     totalBytes_.store(0, std::memory_order_relaxed);
     progressTick_.store(0, std::memory_order_relaxed);
+    batchCount_.store(0, std::memory_order_relaxed);
+    errorCount_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
+    
+    auto startTime = std::chrono::steady_clock::now();
     queue_.reset();
     DirAcc* rootAcc = nullptr;
     {
@@ -224,12 +230,17 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     for (auto& t : pool) {
         t.join();
     }
+    auto endTime = std::chrono::steady_clock::now();
+    
     EngineResult result{};
     result.fileCount = fileCount_.load(std::memory_order_relaxed);
     result.dirCount = dirCount_.load(std::memory_order_relaxed);
     result.totalBytes = totalBytes_.load(std::memory_order_relaxed);
     result.backend = backend_;
     result.cancelled = userCancelled_.load(std::memory_order_relaxed);
+    result.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    result.batchCount = batchCount_.load(std::memory_order_relaxed);
+    result.errorCount = errorCount_.load(std::memory_order_relaxed);
     return result;
 }
 
