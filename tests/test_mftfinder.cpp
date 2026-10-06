@@ -151,8 +151,9 @@ private slots:
         QCOMPARE(rec.parentNumber, static_cast<std::uint32_t>(5));
         QCOMPARE(rec.parentSequence, static_cast<std::uint16_t>(5));
         QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
-        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(12));
-        QVERIFY(!rec.physicalIsClusterCount);
+        QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(12));
+        QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(0));
+        QVERIFY(rec.usesClusterMath);
         QCOMPARE(rec.lastWriteTs,
                  usa::scanner::detail::filetimeToUnix(kTestFiletime));
     }
@@ -182,8 +183,9 @@ private slots:
         patchNonResidentData(buf, false, 0);
         usa::scanner::detail::MftRecord rec{};
         QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
-        QVERIFY(rec.physicalIsClusterCount);
-        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(3));
+        QVERIFY(rec.usesClusterMath);
+        QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(3));
+        QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(0));
         QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
     }
 
@@ -193,8 +195,9 @@ private slots:
         patchNonResidentData(buf, true, 500);
         usa::scanner::detail::MftRecord rec{};
         QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
-        QVERIFY(!rec.physicalIsClusterCount);
-        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(500));
+        QVERIFY(rec.usesClusterMath);
+        QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(500));
+        QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(0));
     }
     void reportsAvailabilityConsistently()
     {
