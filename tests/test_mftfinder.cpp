@@ -2,6 +2,10 @@
 
 #include <QTemporaryDir>
 
+#ifdef _WIN32
+#include <QStorageInfo>
+#endif
+
 #include <filesystem>
 
 #include "../src/services/scanner/DirectoryFinder.h"
@@ -142,11 +146,26 @@ private slots:
     }
     void reportsAvailabilityConsistently()
     {
-        // No elevation / non-NTFS paths are never eligible, on any OS.
-        QVERIFY(!usa::scanner::isDirectScanAvailable(std::filesystem::path{
-            "Z:/definitely-not-here-usa-test"}));
-#ifndef _WIN32
-        QVERIFY(!usa::scanner::isDirectScanAvailable(std::filesystem::path{"/tmp"}));
+        // Empty paths are never eligible, on any OS.
+        QVERIFY(!usa::scanner::isDirectScanAvailable(std::filesystem::path{}));
+#ifdef _WIN32
+        // A drive letter with no mounted volume is never eligible. Hunt
+        // one at runtime instead of assuming a letter is free (this
+        // machine, for example, has a real Z: drive).
+        QString bogus{};
+        for (char letter = 'Q'; letter <= 'Z'; ++letter) {
+            const QString candidate =
+                QStringLiteral("%1:/definitely-not-here-usa-test").arg(QChar(letter));
+            if (!QStorageInfo(candidate).isValid()) {
+                bogus = candidate;
+                break;
+            }
+        }
+        if (bogus.isEmpty()) {
+            QSKIP("No free drive letter Q-Z to test unmounted volumes.");
+        }
+        QVERIFY(!usa::scanner::isDirectScanAvailable(
+            std::filesystem::path{bogus.toStdWString()}));
 #endif
     }
 
@@ -172,7 +191,11 @@ private slots:
                   "covered by the directory backend tests.");
         }
         MftFinder finder{};
-        QVERIFY(finder.loadVolume(sysRoot));
+        const bool loaded = finder.loadVolume(sysRoot);
+        if (!loaded) {
+            qInfo() << "loadVolume failed:" << QString::fromStdString(finder.lastError());
+        }
+        QVERIFY(loaded);
         QVERIFY(finder.volumeLoaded());
         QVERIFY(finder.recordCount() > 1000);
 

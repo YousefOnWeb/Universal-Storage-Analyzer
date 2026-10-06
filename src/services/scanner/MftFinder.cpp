@@ -222,9 +222,16 @@ bool isDirectScanAvailable(const std::filesystem::path& root)
 
 bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
 {
+    lastError_.clear();
+    // Captures the failing step plus the Win32 code at the point of failure.
+    const auto fail = [&](const char* step) {
+        const DWORD code = GetLastError();
+        lastError_ = std::string(step) + " (win32=" + std::to_string(code) + ")";
+        return false;
+    };
     const std::wstring drive = anyPathOnVolume.root_name().native(); // e.g. L"C:"
     if (drive.size() < 2 || drive[1] != L':') {
-        return false; // not a drive-letter path; nothing to read directly
+        return fail("not a drive-letter path");
     }
     // Process-wide volume cache: the engine's probe load warms it and all
     // worker instances share the image instead of re-reading the volume.
@@ -252,7 +259,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     std::uint64_t mftStartLcn{0};
     std::uint64_t recordSize{0};
     if (!readBootSector(volumePath, bytesPerSector, sectorsPerCluster, mftStartLcn, recordSize)) {
-        return false;
+        return fail("boot sector read/validation");
     }
     const std::uint64_t clusterSize = bytesPerSector * sectorsPerCluster;
     (void)mftStartLcn; // located via retrieval pointers below, not the LCN hint
@@ -261,25 +268,25 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
                                  FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                  FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
     if (volume.h == INVALID_HANDLE_VALUE) {
-        return false;
+        return fail("volume open (raw device)");
     }
     std::vector<MftExtent> extents{};
     if (!getMftExtents(volume.h, clusterSize, extents)) {
-        return false;
+        return fail("retrieval pointers (MFT extents)");
     }
     std::uint64_t total{0};
     for (const auto& e : extents) {
         total += e.length;
     }
     if (total == 0 || total > kMaxVolumeBytes || total % recordSize != 0) {
-        return false;
+        return fail("implausible MFT size");
     }
 
     // Unbuffered I/O needs page-aligned memory.
     void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(total), MEM_COMMIT | MEM_RESERVE,
                              PAGE_READWRITE);
     if (raw == nullptr) {
-        return false;
+        return fail("image allocation (VirtualAlloc)");
     }
     unsigned char* image = static_cast<unsigned char*>(raw);
     for (const auto& e : extents) {
@@ -288,7 +295,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
             const std::uint64_t step = (std::min)(e.length - done, kReadChunk);
             if (!readExact(volume.h, e.diskOffset + done, image + e.fileOffset + done, step)) {
                 VirtualFree(raw, 0, MEM_RELEASE);
-                return false;
+                return fail("MFT extent read");
             }
             done += step;
         }
@@ -338,7 +345,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         }
     }
     if (shared->records.empty()) {
-        return false;
+        return fail("no usable records parsed");
     }
     for (std::size_t i{0}; i < shared->records.size(); ++i) {
         const auto& rec = shared->records[i];
@@ -349,7 +356,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
     // The volume root must resolve or the image is unusable.
     if (shared->byNumber.find(kRootRecordNumber) == shared->byNumber.end()) {
-        return false;
+        return fail("volume root record missing");
     }
     {
         const std::lock_guard<std::mutex> lock{cacheMutex};

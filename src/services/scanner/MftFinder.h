@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace usa::scanner {
@@ -35,6 +36,9 @@ public:
     bool loadVolume(const std::filesystem::path& anyPathOnVolume);
     std::size_t recordCount() const;
     bool volumeLoaded() const;
+    // Human-readable reason for the most recent loadVolume() failure
+    // (step name + Win32 error). Empty when the last load succeeded.
+    std::string lastError() const { return lastError_; }
 
 private:
     struct SharedVolume;
@@ -45,6 +49,7 @@ private:
     std::size_t position_{0};
     bool enumerationStarted_{false};
     DirEntry current_{};
+    std::string lastError_{};
 };
 
 // True on Windows when the process is elevated AND the path lives on an
