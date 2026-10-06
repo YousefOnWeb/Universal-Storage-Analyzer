@@ -18,6 +18,12 @@ DatabaseManager::DatabaseManager(QObject* parent)
 
 bool DatabaseManager::ensureReady(QString* error)
 {
+    // Re-entrant: runSmokeTest() constructs a second manager in the same
+    // process, so drop any previous registration instead of shadowing it
+    // (which Qt reports as "duplicate connection name").
+    if (QSqlDatabase::contains(QStringLiteral("usa-settings"))) {
+        QSqlDatabase::removeDatabase(QStringLiteral("usa-settings"));
+    }
     QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
                                                 QStringLiteral("usa-settings"));
     db.setDatabaseName(dbPath_);
