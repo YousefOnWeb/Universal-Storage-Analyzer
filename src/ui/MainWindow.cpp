@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QSettings>
 #include <QStatusBar>
 #include <QStorageInfo>
@@ -124,6 +125,10 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(scanner_, &ScannerService::scanFinished, this, &MainWindow::onScanFinished);
     connect(scanner_, &ScannerService::scanProgress, this,
             [this](const QString&, const QString& p) { statusLabel_->setText(p); });
+    connect(scanner_, &ScannerService::errorOccurred, this,
+            [this](const QString&, const QString& err) {
+                QMessageBox::critical(this, QStringLiteral("Scan Error"), err);
+            });
 
     // Drive overview
     QStringList drives{};
