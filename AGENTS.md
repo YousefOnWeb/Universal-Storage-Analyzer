@@ -63,6 +63,7 @@ To maintain a clean and bisectable history, agents must adhere to the following 
 * **Meaningful Messages:** Write imperative commit messages (e.g., "Add N-ary tree traversal logic" rather than "Added logic").
 * **Feature Branching:** Never push directly to the `main` branch. All work must be done in scoped feature branches (e.g., `feature/async-scanner`, `fix/ui-thread-block`).
 * **Rebasing:** Prefer rebasing feature branches against `main` over merge commits to keep the project history linear.
+* **Correct Git Identity:** All commits must use the developer's actual Git identity as configured in their global Git configuration (`git config --global user.name` / `user.email`). Agents must never use placeholder identities (e.g., "OpenCode <opencode@local>"). Before committing, verify the identity with `git config user.name` and `git config user.email`. If the identity is incorrect, fix it before committing. This applies retroactively: if incorrect identities are detected in history, they must be corrected before new commits are added.
 
 ## 6. CI/CD & Release Pipeline
 
