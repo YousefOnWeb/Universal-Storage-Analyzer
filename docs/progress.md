@@ -31,6 +31,10 @@
   reader managed ~11k — the gap is per-directory path resolution
   (O(depth x width) string descent per job), not disk I/O. Fixed by
   carrying the backend record token through scan jobs for O(1) opens.
+  Follow-up measurement after the fix: engine-side 82k nodes/sec with the
+  GUI thread drowning in ~2M summary signals, so summaries now flow
+  leaf-only per flush with a final exactness sweep, model view updates
+  coalesce at 10 Hz, and live resorting pauses during scans.
 
 ## Next tasks
 

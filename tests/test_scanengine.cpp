@@ -9,6 +9,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -101,6 +102,20 @@ private slots:
         QVERIFY(out.lastSummary.contains(subId));
         QCOMPARE(out.lastSummary.at(subId).logicalSize, static_cast<std::uint64_t>(300));
         QCOMPARE(out.lastSummary.at(subId).fileCount, static_cast<std::uint32_t>(1));
+
+        // The final sweep covers every discovered directory, so all of
+        // them converge no matter which intermediate summaries were
+        // throttled into leaf-only reports.
+        std::set<std::uint32_t> dirIds{0};
+        for (const auto& n : out.nodes) {
+            if (n.isDirectory) {
+                dirIds.insert(n.id);
+            }
+        }
+        QCOMPARE(dirIds.size(), static_cast<std::size_t>(3)); // root + sub + emptydir
+        for (const std::uint32_t id : dirIds) {
+            QVERIFY(out.lastSummary.contains(id));
+        }
     }
 
     void pauseHoldsAndResumeCompletes()

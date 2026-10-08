@@ -11,8 +11,7 @@ class TestFileSystemModel : public QObject {
     Q_OBJECT
 private slots:
     void storesNodesAndSummariesWithoutDoubling()
-    {
-        FileSystemModel model{};
+    {        FileSystemModel model{};
         model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
 
         // dir D (id 1) + file f1 (id 2) under root; file f2 (id 3) under D.
@@ -67,6 +66,36 @@ private slots:
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(600));
         QCOMPARE(model.rowCount(QModelIndex{}), 2); // D + f1
         QCOMPARE(model.rowCount(dIdx), 1); // f2
+    }
+
+    void coalescesRapidSummarySignals()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir});
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        QVERIFY(dIdx.isValid());
+
+        // Fifty synchronous summaries: values apply immediately, but the
+        // view notification fires exactly once via the coalescing timer.
+        QSignalSpy dataSpy{&model, &FileSystemModel::dataChanged};
+        for (int i{0}; i < 50; ++i) {
+            BranchMetrics m{};
+            m.nodeId = 1;
+            m.logicalSize = static_cast<quint64>(100 + i);
+            model.onBranchMetricsUpdated(QStringLiteral("t"), m);
+        }
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()))
+                     .toULongLong(),
+                 static_cast<qulonglong>(149));
+        QVERIFY(dataSpy.wait(500));
+        QCOMPARE(dataSpy.count(), 1);
     }
 };
 
