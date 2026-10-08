@@ -30,7 +30,7 @@ signals:
     void branchMetricsUpdated(const QString& taskId, BranchMetrics metrics);
     void scanFinished(const QString& taskId, quint64 fileCount, quint64 dirCount,
                       quint64 totalBytes);
-    void errorOccurred(const QString& taskId, const QString& message);
+    void errorOccurred(const QString& taskId, const QString& message, bool fatal);
 
 private:
     QThread* thread_{nullptr};

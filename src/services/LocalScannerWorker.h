@@ -35,7 +35,7 @@ signals:
     void scanProgress(const QString& taskId, const QString& currentPath);
     void scanFinished(const QString& taskId, quint64 fileCount, quint64 dirCount,
                       quint64 totalBytes);
-    void errorOccurred(const QString& taskId, const QString& message);
+    void errorOccurred(const QString& taskId, const QString& message, bool fatal);
 
 private:
     usa::scanner::ScanEngine engine_;

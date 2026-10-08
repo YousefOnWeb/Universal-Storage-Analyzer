@@ -213,8 +213,8 @@ int main(int argc, char* argv[])
             app.quit();
         });
         
-        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [](const QString&, const QString& err) {
-            qCritical() << "CLI Error:" << err;
+        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [](const QString&, const QString& err, bool fatal) {
+            qCritical() << (fatal ? "CLI Fatal Error:" : "CLI Error:") << err;
         });
 
         scanner.startScan(target, enableLog);

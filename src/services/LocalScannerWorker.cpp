@@ -67,8 +67,8 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         metrics.folderCount = summary.folderCount;
         emit branchMetricsUpdated(taskId, metrics);
     };
-    callbacks.onError = [&](const std::string& message) {
-        emit errorOccurred(taskId, QString::fromStdString(message));
+    callbacks.onError = [&](const std::string& message, bool fatal) {
+        emit errorOccurred(taskId, QString::fromStdString(message), fatal);
     };
     callbacks.onProgress = [&](const std::string& path) {
         emit scanProgress(taskId, QString::fromStdString(path));
