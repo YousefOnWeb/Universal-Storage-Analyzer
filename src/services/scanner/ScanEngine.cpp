@@ -148,21 +148,6 @@ void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* pha
     callbacks.onTelemetry(json.str());
 }
 
-void ScanEngine::emitLeaf(const EngineCallbacks& callbacks, DirAcc* acc)
-{
-    if (!callbacks.onDirSummary || acc == nullptr) {
-        return;
-    }
-    EngineDirSummary summary{};
-    summary.nodeId = acc->id;
-    summary.logicalSize = acc->logical.load(std::memory_order_relaxed);
-    summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
-    summary.fileCount = acc->files.load(std::memory_order_relaxed);
-    summary.folderCount = acc->folders.load(std::memory_order_relaxed);
-    std::lock_guard<std::mutex> lock{emitMutex_};
-    callbacks.onDirSummary(summary);
-}
-
 void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
 {
     if (!callbacks.onDirSummary) {
@@ -194,16 +179,15 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
         const auto now = std::chrono::steady_clock::now();
         if (!batch.empty()
             && (force || batch.size() >= kBatchNodes || now - lastFlush >= kFlushInterval)) {
-            // Time-based flushes refresh whole ancestor chains (live view);
-            // size/forced flushes report just the finished job (cheap).
-            // Either way the final sweep at run end guarantees exactness.
-            const bool timed = !force && (now - lastFlush >= kFlushInterval);
+            // Time-based flushes refresh whole ancestor chains (live view).
+            // Size/forced flushes emit nodes only: their summaries would
+            // duplicate what the final sweep guarantees anyway, and at
+            // hundreds of thousands of flushes that duplication drowns
+            // the UI thread.
             emitBatch(callbacks, batch);
             batchCount_.fetch_add(1, std::memory_order_relaxed);
-            if (timed) {
+            if (!force && (now - lastFlush >= kFlushInterval)) {
                 emitChain(callbacks, chainLeaf);
-            } else {
-                emitLeaf(callbacks, chainLeaf);
             }
             lastFlush = now;
             // Periodic telemetry, at most every 250 ms engine-wide. The
