@@ -19,7 +19,10 @@ scan blocks the worker thread (no event-loop round trip).
 - `nodesDiscovered(taskId, QVector<FileRecord> batch)` — ≤500/batch.
 - `branchMetricsUpdated(taskId, BranchMetrics)` — directory rollups.
 - `scanProgress(taskId, currentPath)` — status bar (throttled 1/2000 entries).
-- `scanFinished(taskId, files, dirs, bytes)` / `errorOccurred(taskId, msg)`.
+- `scanFinished(taskId, files, dirs, bytes)` / `errorOccurred(taskId, msg, fatal)`
+  (`fatal` = the scan cannot proceed, e.g. missing/non-directory target;
+  per-directory skips are non-fatal and collected for an end-of-scan
+  summary instead of popping up one by one).
 
 Payloads are value types registered with `Q_DECLARE_METATYPE`; no pointers
 cross threads. Future multi-target scans reuse `taskId` without changing shapes.

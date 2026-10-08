@@ -15,6 +15,9 @@
   automatic native fallback) coordinated by `ScanEngine` over a
   `BlockingQueue` pool; engine owns aggregation, model stores verbatim
   (fixes latent double-count of directory totals).
+- Error severity is decided at the engine source: fatal (scan cannot
+  proceed) pops up immediately; per-directory skips (108/sec observed on
+  real volumes) are collected and shown once at scan end.
 
 ## Next tasks
 
