@@ -54,6 +54,10 @@ private:
     struct Node {
         quint32 id{0};
         quint32 parentId{0};
+        // Source row within the parent. Fixed at insert time (children are
+        // only ever appended), so index lookup stays O(1) no matter how
+        // wide a directory gets.
+        int row{-1};
         QString name{};
         quint64 logicalSize{0};
         quint64 allocatedSize{0};

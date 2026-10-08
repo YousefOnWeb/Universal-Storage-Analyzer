@@ -38,15 +38,7 @@ QModelIndex FileSystemModel::parent(const QModelIndex& child) const
         return {};
     }
     const Node* p = node->parent;
-    const Node* gp = p->parent != nullptr ? p->parent : root_;
-    int row{0};
-    for (int i{0}; i < static_cast<int>(gp->children.size()); ++i) {
-        if (gp->children.at(static_cast<std::size_t>(i)) == p) {
-            row = i;
-            break;
-        }
-    }
-    return createIndex(row, 0, const_cast<Node*>(p));
+    return createIndex(p->row, 0, const_cast<Node*>(p));
 }
 
 int FileSystemModel::rowCount(const QModelIndex& parent) const
@@ -139,16 +131,8 @@ QModelIndex FileSystemModel::indexForNodeId(quint32 nodeId) const
     if (it == owned_.end() || it->second.get() == root_) {
         return {};
     }
-    const Node* node = it->second.get();
-    const Node* p = node->parent != nullptr ? node->parent : root_;
-    int row{0};
-    for (int i{0}; i < static_cast<int>(p->children.size()); ++i) {
-        if (p->children.at(static_cast<std::size_t>(i)) == node) {
-            row = i;
-            break;
-        }
-    }
-    return createIndex(row, 0, const_cast<Node*>(node));
+    Node* node = it->second.get();
+    return createIndex(node->row, 0, node);
 }
 
 void FileSystemModel::clear()
@@ -207,6 +191,7 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
         auto node = std::make_unique<Node>();
         node->id = rec.id;
         node->parentId = parentNode->id;
+        node->row = row;
         node->name = rec.name;
         node->logicalSize = rec.logicalSize;
         node->allocatedSize = rec.allocatedSize;
