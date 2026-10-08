@@ -45,6 +45,13 @@
   span (holes stay zero-filled, which is also what sparse clusters
   contain). Verified by review + suite; needs one elevated scan to
   confirm on the affected volume.
+- Crash fix #2 (same fail-fast signature, reproduced live): NTFS allows
+  unpaired surrogates in names; std::filesystem converters throw on them,
+  and a throw in an engine worker thread terminates the process ~1s into
+  any scan touching such a name. Fixed with an infallible lossy UTF-16
+  converter (lone units become U+FFFD) plus a mutex around the shared
+  session-log file handle. Proven by a full C:\ scan completing
+  (1.66M files, 315 collected errors) that previously died in ~1s.
 - Model updates: batched row inserts by parent, numeric sort role
   (sorts compare int64s — 2.2 s on 2M rows vs guaranteed hang before),
   coalescing cap kept generous (2000/tick) so the end-of-scan sweep
