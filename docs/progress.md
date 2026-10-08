@@ -32,9 +32,12 @@
   (O(depth x width) string descent per job), not disk I/O. Fixed by
   carrying the backend record token through scan jobs for O(1) opens.
   Follow-up measurement after the fix: engine-side 82k nodes/sec with the
-  GUI thread drowning in ~2M summary signals, so summaries now flow
-  leaf-only per flush with a final exactness sweep, model view updates
-  coalesce at 10 Hz, and live resorting pauses during scans.
+  GUI thread drowning in ~2M summary signals. Coalescing bounds frequency
+  but not count, so forced-flush summaries were removed outright (the
+  final sweep guarantees them), per-tick emissions capped at 2000 for
+  smooth catch-up, model view updates coalesce at 10 Hz, and live
+  resorting pauses during scans. Bench: 48k vs 288k emissions in the
+  same drain window.
 
 ## Next tasks
 
