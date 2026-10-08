@@ -55,7 +55,9 @@ struct EngineResult {
 struct EngineCallbacks {
     std::function<void(std::vector<EngineNode>)> onBatch{};
     std::function<void(const EngineDirSummary&)> onDirSummary{};
-    std::function<void(const std::string&)> onError{};
+    // Severity is decided at the source: fatal = the scan cannot proceed
+    // (missing target); non-fatal = one item skipped, scan continues.
+    std::function<void(const std::string&, bool fatal)> onError{};
     std::function<void(const std::string&)> onProgress{};
 };
 

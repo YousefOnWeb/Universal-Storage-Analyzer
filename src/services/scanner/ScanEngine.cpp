@@ -107,7 +107,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
                 std::lock_guard<std::mutex> lock{emitMutex_};
-                callbacks.onError("Cannot enumerate directory: " + utf8Path(job.path));
+                callbacks.onError("Cannot enumerate directory: " + utf8Path(job.path), false);
             }
             queue_.taskDone();
             continue;
@@ -200,7 +200,14 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     std::error_code ec{};
     if (!std::filesystem::exists(root, ec) || ec) {
         if (callbacks.onError) {
-            callbacks.onError("Target path does not exist: " + utf8Path(root));
+            callbacks.onError("Target path does not exist: " + utf8Path(root), true);
+        }
+        backend_ = BackendKind::NativeDirectory;
+        return EngineResult{};
+    }
+    if (!std::filesystem::is_directory(root, ec) || ec) {
+        if (callbacks.onError) {
+            callbacks.onError("Target is not a directory: " + utf8Path(root), true);
         }
         backend_ = BackendKind::NativeDirectory;
         return EngineResult{};
@@ -217,7 +224,8 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
             backend_ = BackendKind::NativeDirectory;
             if (callbacks.onError) {
                 std::lock_guard<std::mutex> lock{emitMutex_};
-                callbacks.onError("Direct volume reading unavailable; using native enumeration.");
+                callbacks.onError("Direct volume reading unavailable; using native enumeration.",
+                                  false);
             }
         }
     }
