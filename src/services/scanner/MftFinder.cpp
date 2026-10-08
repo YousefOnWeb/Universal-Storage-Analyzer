@@ -386,19 +386,25 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         lastError_ = "retrieval pointers (MFT extents): " + extentError;
         return false;
     }
-    std::uint64_t total{0};
+    std::uint64_t imageEnd{0};
     for (const auto& e : extents) {
-        total += e.length;
+        // Span must cover holes: sparse runs advance the VCN walk without
+        // emitting extents, so later fileOffsets can exceed the summed
+        // lengths. Sizing by the sum would overflow the image buffer
+        // (heap corruption, fail-fast crash). VirtualAlloc returns zeroed
+        // pages, which is exactly what sparse clusters contain — holes
+        // stay zero and parse-skipped via bad magic.
+        imageEnd = (std::max)(imageEnd, e.fileOffset + e.length);
     }
-    if (total == 0 || total > kMaxVolumeBytes || total % recordSize != 0) {
+    if (imageEnd == 0 || imageEnd > kMaxVolumeBytes || imageEnd % recordSize != 0) {
         return fail("implausible MFT size");
     }
-    if (mftValidLength > 0 && total < mftValidLength) {
+    if (mftValidLength > 0 && imageEnd < mftValidLength) {
         return fail("truncated extent walk (below valid data length)");
     }
 
     // High-performance asynchronous MFT reading via multiple threads and OVERLAPPED I/O.
-    void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(total), MEM_COMMIT | MEM_RESERVE,
+    void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(imageEnd), MEM_COMMIT | MEM_RESERVE,
                              PAGE_READWRITE);
     if (raw == nullptr) {
         return fail("image allocation (VirtualAlloc)");
@@ -508,7 +514,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
 
     // Parallel record parsing (stride across threads for even load).
-    const std::size_t count = static_cast<std::size_t>(total / recordSize);
+    const std::size_t count = static_cast<std::size_t>(imageEnd / recordSize);
     unsigned threads = std::thread::hardware_concurrency();
     if (threads == 0) {
         threads = 4;
