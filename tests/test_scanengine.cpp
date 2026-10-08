@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QFile>
 #include <QTemporaryDir>
 
 #include <atomic>
@@ -147,10 +148,42 @@ private slots:
     {
         ScanEngine engine{};
         bool sawError{false};
+        bool sawFatal{false};
         usa::scanner::EngineCallbacks cb{};
-        cb.onError = [&](const std::string&) { sawError = true; };
+        cb.onError = [&](const std::string&, bool fatal) {
+            sawError = true;
+            sawFatal = fatal;
+        };
         const auto result = engine.run(std::filesystem::path{"Z:/definitely-not-here-usa-test"}, cb);
         QVERIFY(sawError);
+        QVERIFY(sawFatal); // missing target stops the scan: fatal
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(0));
+    }
+
+    void fileTargetIsFatal()
+    {
+        // A file is not scannable: report explicitly instead of silently
+        // finishing with zeros. Deterministic on every platform.
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        QFile f{tmp.filePath(QStringLiteral("plain.txt"))};
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QByteArray(16, 'q'));
+        f.close();
+
+        ScanEngine engine{};
+        bool sawError{false};
+        bool sawFatal{false};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onError = [&](const std::string&, bool fatal) {
+            sawError = true;
+            sawFatal = fatal;
+        };
+        const auto result =
+            engine.run(std::filesystem::path{tmp.filePath(QStringLiteral("plain.txt")).toStdWString()},
+                       cb);
+        QVERIFY(sawError);
+        QVERIFY(sawFatal);
         QCOMPARE(result.fileCount, static_cast<std::uint64_t>(0));
     }
 };
