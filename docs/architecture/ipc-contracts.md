@@ -1,11 +1,12 @@
 # IPC / thread contracts
 
 Sprint 1 has no child processes; "contracts" are the cross-thread Qt
-signal/slot boundaries (all `Qt::QueuedConnection` from worker to GUI).
+signal/slot boundaries. Worker-to-GUI traffic is queued connections;
+pause/cancel deliberately use direct connections (see below).
 
 ## UI → engine (`IScannerService`)
 
-- `startScan(targetPath) -> taskId`
+- `startScan(targetPath, enableLogging=true) -> taskId`
 - `toggleScanState(taskId, pause)`
 - `cancelScan(taskId)` (cooperative; worker drains current directory entry)
 

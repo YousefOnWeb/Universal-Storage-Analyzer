@@ -1,8 +1,11 @@
 # Non-goals (Sprint 1)
 
-- No MFT-direct reads yet (portable `std::filesystem` traversal; MFT is a
-  Milestone 2+ optimization behind the VFS layer).
-- No cloud/network/mobile/mailbox targets.
+- No cloud/network/mobile/mailbox targets (local + portable fallback
+  cover all current targets; remote protocols stay Milestone 2+).
 - No charts beyond the Details table (tabs are visible placeholders).
 - No dedup, mass rename, cleanup wizard, exports, or scheduling.
 - No shell extensions / drag-and-drop / installer signing.
+
+Note: direct volume reading when elevated *is* in scope and implemented
+(see ADR 0002) — the portable enumerator remains the guaranteed fallback
+on every platform.
