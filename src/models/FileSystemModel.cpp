@@ -12,6 +12,20 @@ FileSystemModel::FileSystemModel(QObject* parent)
     root->isDirectory = true;
     root_ = root.get();
     owned_.emplace(0, std::move(root));
+    coalesceTimer_.setSingleShot(true);
+    coalesceTimer_.setInterval(100);
+    connect(&coalesceTimer_, &QTimer::timeout, this, &FileSystemModel::flushDirtySummaries);
+}
+
+void FileSystemModel::flushDirtySummaries()
+{
+    for (const quint32 id : std::as_const(dirtyIds_)) {
+        const auto it = owned_.find(id);
+        if (it != owned_.end()) {
+            refreshNode(indexForNodeId(id), it->second.get());
+        }
+    }
+    dirtyIds_.clear();
 }
 
 QModelIndex FileSystemModel::index(int row, int column, const QModelIndex& parent) const
@@ -140,6 +154,10 @@ void FileSystemModel::clear()
     beginResetModel();
     owned_.clear();
     pendingSummaries_.clear();
+    dirtyIds_.clear();
+    coalesceTimer_.stop();
+    dirtyIds_.clear();
+    coalesceTimer_.stop();
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
@@ -156,6 +174,8 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
     beginResetModel();
     owned_.clear();
     pendingSummaries_.clear();
+    dirtyIds_.clear();
+    coalesceTimer_.stop();
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
@@ -234,9 +254,14 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
     // Replace semantics: the engine reports absolute running totals per
     // directory (already propagated up the ancestor chain engine-side), so
     // the model stores them verbatim. Adding here would double-count.
+    // View notification is coalesced (see flushDirtySummaries): values are
+    // current immediately, repaint/proxy work happens at most every 100 ms.
     Node* node = it->second.get();
     applyMetrics(node, metrics);
-    refreshNode(indexForNodeId(node->id), node);
+    dirtyIds_.insert(node->id);
+    if (!coalesceTimer_.isActive()) {
+        coalesceTimer_.start();
+    }
 }
 
 void FileSystemModel::applyMetrics(Node* node, const BranchMetrics& metrics)

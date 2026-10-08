@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QSet>
+#include <QTimer>
 #include <QVector>
 
 #include "../services/ScanTypes.h"
@@ -78,6 +80,15 @@ private:
     // for signal efficiency while summaries stream immediately). Applied
     // on insert; latest wins.
     std::unordered_map<quint32, BranchMetrics> pendingSummaries_{};
+    // View-notification coalescing: values are stored immediately, but
+    // dataChanged (which drives proxy re-filtering and repaints) fires at
+    // most every 100 ms. Without this, hundreds of thousands of summary
+    // signals per scan would keep the event loop from ever idling.
+    QSet<quint32> dirtyIds_{};
+    QTimer coalesceTimer_{};
     Node* root_{nullptr};
     quint64 totalLogical_{0};
+
+private slots:
+    void flushDirtySummaries();
 };
