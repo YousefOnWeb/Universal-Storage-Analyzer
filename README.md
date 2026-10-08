@@ -3,7 +3,9 @@
 High-performance, open-source storage intelligence for Windows, macOS, and Linux:
 scan local drives, visualize consumption in a live dual-pane UI, and act on results.
 
-> Sprint 1 scope: local directory scan → virtualized dual-pane UI → light/dark themes.
+> Current scope: dual-backend scan engine (direct volume reading when
+> elevated, portable enumeration otherwise) → virtualized dual-pane UI →
+> light/dark themes → per-scan logs + session telemetry → headless CLI.
 > Cloud protocols, charts, dedup, and exports arrive in Milestones 2–4.
 
 ## Quick start (Windows + MSYS2 UCRT64)
@@ -30,9 +32,9 @@ Linux/macOS: install `qt6-base` via your package manager and drop the
 ## Layout
 
 ```text
-src/app/        bootstrap (main.cpp, CLI modes)
+src/app/        bootstrap (main.cpp, CLI modes, session logging)
 src/domain/     Qt-free business rules (FSNode, FileTree)
-src/services/   infrastructure (scanner worker, scheduler façade, SQLite)
+src/services/   infrastructure (scan engine, Qt bridge, scan logger, SQLite)
 src/models/     QAbstractItemModel projections (tree + details)
 src/ui/         Widgets rendering (MainWindow, ThemeManager)
 src/resources/  styles + migrations + Qt resource bundle
@@ -49,6 +51,21 @@ scripts/        verify + smoke-test entry points
 | `--smoke-test` | Init DB + services, print `SMOKE-OK`, exit 0 |
 | `--headless-check` | Validate DB, migrations, resources, app-data dir |
 | `--reset-test-data` | Clear test DB (requires `UNIVERSAL_STORAGE_ANALYZER_TEST=1`) |
+| `--cli-scan <path>` | Headless scan with live progress + summary on stdout |
+| `--no-log` | With `--cli-scan`: skip the per-scan diagnostic log file |
+
+## Scan logs, session logs & telemetry
+
+- **Per-scan logs** (`<AppData>/scan-logs/scan_*.log`, gitignored): target,
+  volume (filesystem, total/free/available, block size, read-only), engine
+  block (backend used, files/dirs/bytes, duration, throughput, batches,
+  errors, cancellation), host block.
+- **Session logs** (`<AppData>/session-logs/session-*.log`): every Qt
+  message with ISO-8601 UTC timestamps, thread-safe across workers.
+- **Scan telemetry**: the engine emits machine-parsable JSON lines —
+  periodic snapshots (scan/thread/subsystem IDs, rates, queue depth,
+  backend) plus a final summary — captured into the session log.
+  Enumerate failures carry OS error codes (`win32=`, `errno=`).
 
 ## Docs
 
