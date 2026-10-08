@@ -27,6 +27,10 @@
   an adaptive engine that does not exist yet), cloud/dedup telemetry (no
   such subsystems exist yet), per-file TRACE, microsecond resolution
   (Qt/OS clock limits).
+- Measured: native backend sustains ~500k nodes/sec while the direct
+  reader managed ~11k — the gap is per-directory path resolution
+  (O(depth x width) string descent per job), not disk I/O. Fixed by
+  carrying the backend record token through scan jobs for O(1) opens.
 
 ## Next tasks
 
