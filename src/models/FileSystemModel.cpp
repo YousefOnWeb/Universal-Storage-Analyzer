@@ -19,13 +19,24 @@ FileSystemModel::FileSystemModel(QObject* parent)
 
 void FileSystemModel::flushDirtySummaries()
 {
-    for (const quint32 id : std::as_const(dirtyIds_)) {
-        const auto it = owned_.find(id);
-        if (it != owned_.end()) {
-            refreshNode(indexForNodeId(id), it->second.get());
+    // Bounded per tick: a final sweep can mark hundreds of thousands of
+    // rows dirty at once, and emitting them all in one turn would stall
+    // the event loop for seconds. Leftovers stay dirty; the timer is
+    // re-armed below so catch-up stays smooth and the loop keeps idling
+    // between ticks (window moves/resizes stay responsive).
+    int emitted{0};
+    for (auto it = dirtyIds_.begin(); it != dirtyIds_.end() && emitted < kMaxEmissionsPerTick;) {
+        const quint32 id = *it;
+        it = dirtyIds_.erase(it);
+        const auto node = owned_.find(id);
+        if (node != owned_.end()) {
+            refreshNode(indexForNodeId(id), node->second.get());
+            ++emitted;
         }
     }
-    dirtyIds_.clear();
+    if (!dirtyIds_.isEmpty() && !coalesceTimer_.isActive()) {
+        coalesceTimer_.start();
+    }
 }
 
 QModelIndex FileSystemModel::index(int row, int column, const QModelIndex& parent) const

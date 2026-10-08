@@ -82,8 +82,11 @@ private:
     std::unordered_map<quint32, BranchMetrics> pendingSummaries_{};
     // View-notification coalescing: values are stored immediately, but
     // dataChanged (which drives proxy re-filtering and repaints) fires at
-    // most every 100 ms. Without this, hundreds of thousands of summary
-    // signals per scan would keep the event loop from ever idling.
+    // most every 100 ms, bounded per tick so burst catch-up (e.g. the
+    // end-of-scan sweep) amortizes instead of stalling the event loop.
+    // Without both bounds, hundreds of thousands of summary signals per
+    // scan would keep the event loop from ever idling.
+    static constexpr int kMaxEmissionsPerTick{2000};
     QSet<quint32> dirtyIds_{};
     QTimer coalesceTimer_{};
     Node* root_{nullptr};
