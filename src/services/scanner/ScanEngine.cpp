@@ -1,6 +1,10 @@
 #include "ScanEngine.h"
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #include <system_error>
 
 namespace usa::scanner {
@@ -21,6 +25,34 @@ std::string utf8Path(const std::filesystem::path& p)
 {
     const auto raw = p.u8string();
     return {reinterpret_cast<const char*>(raw.data()), raw.size()};
+}
+
+// ISO-8601 UTC with fractional seconds for machine-parsable log lines.
+// Resolution is OS-provided (often milliseconds); the field always carries
+// microseconds of whatever the clock actually resolved.
+std::string isoUtcNow()
+{
+    using namespace std::chrono;
+    const auto now = system_clock::now();
+    const auto micros = duration_cast<microseconds>(now.time_since_epoch());
+    const std::time_t secs = system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &secs);
+#else
+    gmtime_r(&tm, &secs);
+#endif
+    char date[32]{};
+    std::strftime(date, sizeof(date), "%Y-%m-%dT%H:%M:%S", &tm);
+    const auto frac = static_cast<unsigned long long>(micros.count() % 1000000LL);
+    char out[48]{};
+    std::snprintf(out, sizeof(out), "%s.%06lluZ", date, frac);
+    return {out};
+}
+
+const char* backendName(BackendKind backend)
+{
+    return backend == BackendKind::DirectMft ? "DirectMft" : "NativeDirectory";
 }
 
 } // namespace
@@ -84,6 +116,38 @@ void ScanEngine::emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc)
     }
 }
 
+void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* phase)
+{
+    if (!callbacks.onTelemetry) {
+        return;
+    }
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
+                                                              - runStart_)
+            .count();
+    const auto files = fileCount_.load(std::memory_order_relaxed);
+    const auto dirs = dirCount_.load(std::memory_order_relaxed);
+    const auto nodes = files + dirs;
+    const double rate =
+        elapsed > 0 ? static_cast<double>(nodes) * 1000.0 / static_cast<double>(elapsed) : 0.0;
+    const auto threadHash = static_cast<unsigned long long>(
+        std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    std::ostringstream json{};
+    json << "{\"timestamp\":\"" << isoUtcNow() << "\",\"level\":\"INFO\""
+         << ",\"scan_id\":\"" << scanId_ << "\",\"thread\":" << threadHash
+         << ",\"subsystem\":\"ScanEngine/" << backendName(backend_) << '/' << phase << '"'
+         << ",\"elapsed_ms\":" << elapsed << ",\"files\":" << files << ",\"dirs\":" << dirs
+         << ",\"bytes\":" << totalBytes_.load(std::memory_order_relaxed)
+         << ",\"nodes_per_sec\":" << std::fixed << std::setprecision(1) << rate
+         << ",\"batches\":" << batchCount_.load(std::memory_order_relaxed)
+         << ",\"errors\":" << errorCount_.load(std::memory_order_relaxed)
+         << ",\"queue_depth\":" << queue_.size()
+         << ",\"idle_workers\":" << queue_.waitingWorkers()
+         << ",\"backend\":\"" << backendName(backend_) << "\"}";
+    std::lock_guard<std::mutex> lock{emitMutex_};
+    callbacks.onTelemetry(json.str());
+}
+
 void ScanEngine::workerMain(const EngineCallbacks& callbacks)
 {
     auto finder = makeFinder();
@@ -98,6 +162,18 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             batchCount_.fetch_add(1, std::memory_order_relaxed);
             emitChain(callbacks, chainLeaf);
             lastFlush = now;
+            // Periodic telemetry, at most every 250 ms engine-wide. The
+            // compare-exchange lets exactly one worker win each window;
+            // a rare double emission is harmless for telemetry.
+            const auto ms = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
+                    .count());
+            auto last = lastTelemetryMs_.load(std::memory_order_relaxed);
+            if (ms - last >= 250
+                && lastTelemetryMs_.compare_exchange_weak(last, ms, std::memory_order_relaxed,
+                                                          std::memory_order_relaxed)) {
+                emitTelemetry(callbacks, "periodic");
+            }
         }
     };
 
@@ -106,8 +182,13 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
         if (!finder->open(job.path)) {
             errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
+                std::string detail = finder->lastError();
+                if (!detail.empty()) {
+                    detail = " [" + detail + "]";
+                }
                 std::lock_guard<std::mutex> lock{emitMutex_};
-                callbacks.onError("Cannot enumerate directory: " + utf8Path(job.path), false);
+                callbacks.onError("Cannot enumerate directory: " + utf8Path(job.path) + detail,
+                                  false);
             }
             queue_.taskDone();
             continue;
@@ -174,7 +255,8 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
     maybeFlush(nullptr, true);
 }
 
-EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCallbacks& callbacks)
+EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCallbacks& callbacks,
+                             const std::string& scanId)
 {
     nextId_.store(1, std::memory_order_relaxed);
     fileCount_.store(0, std::memory_order_relaxed);
@@ -183,9 +265,12 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     progressTick_.store(0, std::memory_order_relaxed);
     batchCount_.store(0, std::memory_order_relaxed);
     errorCount_.store(0, std::memory_order_relaxed);
+    lastTelemetryMs_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
+    scanId_ = scanId; // read-only for the rest of the run (workers spawn below)
     
     auto startTime = std::chrono::steady_clock::now();
+    runStart_ = startTime;
     queue_.reset();
     DirAcc* rootAcc = nullptr;
     {
@@ -257,6 +342,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     result.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     result.batchCount = batchCount_.load(std::memory_order_relaxed);
     result.errorCount = errorCount_.load(std::memory_order_relaxed);
+    emitTelemetry(callbacks, "final");
     return result;
 }
 

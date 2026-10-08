@@ -59,6 +59,10 @@ struct EngineCallbacks {
     // (missing target); non-fatal = one item skipped, scan continues.
     std::function<void(const std::string&, bool fatal)> onError{};
     std::function<void(const std::string&)> onProgress{};
+    // Machine-parsable telemetry, one JSON object per line: periodic
+    // snapshots (at most ~4/sec engine-wide) plus one final summary.
+    // Kept out of the hot path — never per file.
+    std::function<void(const std::string&)> onTelemetry{};
 };
 
 // Multi-threaded scan orchestrator (Qt-free).
@@ -84,7 +88,8 @@ public:
     ScanEngine(const ScanEngine&) = delete;
     ScanEngine& operator=(const ScanEngine&) = delete;
 
-    EngineResult run(const std::filesystem::path& root, const EngineCallbacks& callbacks);
+    EngineResult run(const std::filesystem::path& root, const EngineCallbacks& callbacks,
+                     const std::string& scanId = {});
 
     // Safe from any thread, even while run() blocks another thread.
     // Pause/cancel only touch synchronisation primitives, so the UI may
@@ -111,6 +116,7 @@ private:
     void workerMain(const EngineCallbacks& callbacks);
     void emitBatch(const EngineCallbacks& callbacks, std::vector<EngineNode>& batch);
     void emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc);
+    void emitTelemetry(const EngineCallbacks& callbacks, const char* phase);
 
     BlockingQueue<DirJob> queue_{};
     std::atomic_uint32_t nextId_{1};
@@ -120,6 +126,9 @@ private:
     std::atomic_uint64_t batchCount_{0};
     std::atomic_uint64_t errorCount_{0};
     std::atomic_uint64_t progressTick_{0};
+    std::atomic_uint64_t lastTelemetryMs_{0};
+    std::string scanId_{}; // set by run() before workers spawn; read-only after
+    std::chrono::steady_clock::time_point runStart_{};
     std::atomic_bool userCancelled_{false};
     BackendKind backend_{BackendKind::NativeDirectory};
     std::mutex emitMutex_{}; // serializes all callback invocations

@@ -1,5 +1,7 @@
 #include "LocalScannerWorker.h"
 
+#include <QDebug>
+
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -73,8 +75,12 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     callbacks.onProgress = [&](const std::string& path) {
         emit scanProgress(taskId, QString::fromStdString(path));
     };
+    callbacks.onTelemetry = [&](const std::string& json) {
+        qInfo().noquote() << QString::fromStdString(json);
+    };
 
-    const usa::scanner::EngineResult result = engine_.run(root, callbacks);
+    const usa::scanner::EngineResult result =
+        engine_.run(root, callbacks, taskId.toUtf8().toStdString());
 
     {
         std::lock_guard<std::mutex> lock{pendingMutex_};
