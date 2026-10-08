@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 namespace usa::scanner {
 
@@ -39,6 +40,10 @@ public:
     // Valid after findNext() returns true, until the next findNext().
     virtual const DirEntry& current() const = 0;
     virtual void close() = 0;
+    // OS-level reason for the most recent open() failure, e.g.
+    // "access denied (win32=5)". Empty when unknown or not applicable.
+    // Exists so diagnostics carry exact codes instead of guesses.
+    virtual std::string lastError() const { return {}; }
 
 protected:
     Finder() = default;

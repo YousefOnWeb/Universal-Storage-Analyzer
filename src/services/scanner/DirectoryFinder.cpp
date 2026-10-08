@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <string>
 #include <system_error>
 
 #ifdef _WIN32
@@ -126,7 +127,9 @@ DirectoryFinder::~DirectoryFinder()
 bool DirectoryFinder::open(const std::filesystem::path& dir)
 {
     close();
+    lastError_.clear();
     if (queryFn() == nullptr) {
+        lastError_ = "NtQueryDirectoryFile unavailable";
         return false;
     }
     const std::wstring path = toLongPath(dir);
@@ -134,6 +137,8 @@ bool DirectoryFinder::open(const std::filesystem::path& dir)
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
+        const DWORD code = GetLastError();
+        lastError_ = "open failed (win32=" + std::to_string(code) + ")";
         return false;
     }
     std::wstring root = dir.root_path().native();
@@ -276,10 +281,13 @@ DirectoryFinder::~DirectoryFinder() = default;
 bool DirectoryFinder::open(const std::filesystem::path& dir)
 {
     close();
+    lastError_.clear();
     std::error_code ec{};
     it_ = std::filesystem::directory_iterator(dir, ec);
     if (ec) {
         it_ = std::filesystem::directory_iterator{};
+        lastError_ = "opendir failed (errno=" + std::to_string(ec.value())
+            + " " + ec.message() + ")";
         return false;
     }
     started_ = false;

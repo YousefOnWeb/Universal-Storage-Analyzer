@@ -30,6 +30,7 @@ public:
     bool findNext() override;
     const DirEntry& current() const override { return current_; }
     void close() override;
+    std::string lastError() const override { return lastError_; }
 
 private:
 #ifdef _WIN32
@@ -50,6 +51,7 @@ private:
     bool started_{false};
 #endif
     DirEntry current_{};
+    std::string lastError_{};
 };
 
 } // namespace usa::scanner

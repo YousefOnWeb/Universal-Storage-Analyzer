@@ -550,15 +550,18 @@ bool MftFinder::open(const std::filesystem::path& dir)
                 }
             }
             if (!found) {
+                lastError_ = "path component not found in volume index";
                 return false;
             }
         }
     }
     const auto recIt = volume_->byNumber.find(current);
     if (recIt == volume_->byNumber.end()) {
+        lastError_ = "directory record missing from volume index";
         return false;
     }
     if (!volume_->records[recIt->second].isDirectory) {
+        lastError_ = "target is not a directory";
         return false;
     }
     openedRecord_ = current;

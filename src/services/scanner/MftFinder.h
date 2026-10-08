@@ -38,7 +38,7 @@ public:
     bool volumeLoaded() const;
     // Human-readable reason for the most recent loadVolume() failure
     // (step name + Win32 error). Empty when the last load succeeded.
-    std::string lastError() const { return lastError_; }
+    std::string lastError() const override { return lastError_; }
 
 private:
     struct SharedVolume;
