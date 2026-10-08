@@ -148,6 +148,41 @@ void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* pha
     callbacks.onTelemetry(json.str());
 }
 
+void ScanEngine::emitLeaf(const EngineCallbacks& callbacks, DirAcc* acc)
+{
+    if (!callbacks.onDirSummary || acc == nullptr) {
+        return;
+    }
+    EngineDirSummary summary{};
+    summary.nodeId = acc->id;
+    summary.logicalSize = acc->logical.load(std::memory_order_relaxed);
+    summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
+    summary.fileCount = acc->files.load(std::memory_order_relaxed);
+    summary.folderCount = acc->folders.load(std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock{emitMutex_};
+    callbacks.onDirSummary(summary);
+}
+
+void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
+{
+    if (!callbacks.onDirSummary) {
+        return;
+    }
+    // Absolute finals for every directory. Guarantees exactness no matter
+    // which intermediate summaries were throttled away above. Runs after
+    // all workers joined, so no accumulator can change underfoot.
+    std::lock_guard<std::mutex> lock{emitMutex_};
+    for (const auto& acc : allDirs_) {
+        EngineDirSummary summary{};
+        summary.nodeId = acc->id;
+        summary.logicalSize = acc->logical.load(std::memory_order_relaxed);
+        summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
+        summary.fileCount = acc->files.load(std::memory_order_relaxed);
+        summary.folderCount = acc->folders.load(std::memory_order_relaxed);
+        callbacks.onDirSummary(summary);
+    }
+}
+
 void ScanEngine::workerMain(const EngineCallbacks& callbacks)
 {
     auto finder = makeFinder();
@@ -159,9 +194,17 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
         const auto now = std::chrono::steady_clock::now();
         if (!batch.empty()
             && (force || batch.size() >= kBatchNodes || now - lastFlush >= kFlushInterval)) {
+            // Time-based flushes refresh whole ancestor chains (live view);
+            // size/forced flushes report just the finished job (cheap).
+            // Either way the final sweep at run end guarantees exactness.
+            const bool timed = !force && (now - lastFlush >= kFlushInterval);
             emitBatch(callbacks, batch);
             batchCount_.fetch_add(1, std::memory_order_relaxed);
-            emitChain(callbacks, chainLeaf);
+            if (timed) {
+                emitChain(callbacks, chainLeaf);
+            } else {
+                emitLeaf(callbacks, chainLeaf);
+            }
             lastFlush = now;
             // Periodic telemetry, at most every 250 ms engine-wide. The
             // compare-exchange lets exactly one worker win each window;
@@ -336,6 +379,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     for (auto& t : pool) {
         t.join();
     }
+    emitSweep(callbacks);
     auto endTime = std::chrono::steady_clock::now();
     
     EngineResult result{};

@@ -119,6 +119,8 @@ private:
     void workerMain(const EngineCallbacks& callbacks);
     void emitBatch(const EngineCallbacks& callbacks, std::vector<EngineNode>& batch);
     void emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc);
+    void emitLeaf(const EngineCallbacks& callbacks, DirAcc* acc);
+    void emitSweep(const EngineCallbacks& callbacks);
     void emitTelemetry(const EngineCallbacks& callbacks, const char* phase);
 
     BlockingQueue<DirJob> queue_{};
