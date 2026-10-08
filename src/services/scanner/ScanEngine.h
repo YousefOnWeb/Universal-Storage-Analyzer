@@ -110,6 +110,9 @@ private:
     struct DirJob {
         std::filesystem::path path{};
         DirAcc* acc{nullptr};
+        // Opaque backend identity of this directory (volume record number
+        // from the direct reader). Lets the backend skip path resolution.
+        std::uint64_t token{0};
     };
 
     std::unique_ptr<Finder> makeFinder();

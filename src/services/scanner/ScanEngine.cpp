@@ -153,6 +153,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
     auto finder = makeFinder();
     std::vector<EngineNode> batch{};
     batch.reserve(kBatchNodes);
+    std::vector<std::unique_ptr<DirAcc>> localDirs{};
     auto lastFlush = std::chrono::steady_clock::now();
     const auto maybeFlush = [&](DirAcc* chainLeaf, bool force) {
         const auto now = std::chrono::steady_clock::now();
@@ -179,7 +180,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
 
     DirJob job{};
     while (queue_.pop(job)) {
-        if (!finder->open(job.path)) {
+        if (!finder->open(job.path, job.token)) {
             errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
                 std::string detail = finder->lastError();
@@ -220,14 +221,11 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                     up = up->parent;
                 }
                 
-                {
-                    std::lock_guard<std::mutex> lock{dirsMutex_};
-                    allDirs_.push_back(std::move(childAcc));
-                }
+                localDirs.push_back(std::move(childAcc));
 
                 batch.push_back(std::move(node));
                 dirCount_.fetch_add(1, std::memory_order_relaxed);
-                queue_.push(DirJob{entry.fullPath, childAccPtr});
+                queue_.push(DirJob{entry.fullPath, childAccPtr, entry.backendToken});
             } else {
                 DirAcc* up = job.acc;
                 while (up != nullptr) {
@@ -253,6 +251,13 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
         queue_.taskDone();
     }
     maybeFlush(nullptr, true);
+
+    if (!localDirs.empty()) {
+        std::lock_guard<std::mutex> lock{dirsMutex_};
+        for (auto& d : localDirs) {
+            allDirs_.push_back(std::move(d));
+        }
+    }
 }
 
 EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCallbacks& callbacks,
@@ -321,7 +326,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     }
     workers = (std::min)(workers, kMaxWorkers);
 
-    queue_.push(DirJob{root, rootAcc});
+    queue_.push(DirJob{root, rootAcc, 0});
     std::vector<std::thread> pool{};
     for (unsigned i{0}; i < workers; ++i) {
         pool.emplace_back([this, &callbacks] { workerMain(callbacks); });
