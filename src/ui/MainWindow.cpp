@@ -126,8 +126,14 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(scanner_, &ScannerService::scanProgress, this,
             [this](const QString&, const QString& p) { statusLabel_->setText(p); });
     connect(scanner_, &ScannerService::errorOccurred, this,
-            [this](const QString&, const QString& err) {
-                QMessageBox::critical(this, QStringLiteral("Scan Error"), err);
+            [this](const QString&, const QString& err, bool fatal) {
+                if (fatal) {
+                    QMessageBox::critical(this, QStringLiteral("Scan Error"), err);
+                } else if (skippedPaths_.size() < kMaxSkippedPaths) {
+                    skippedPaths_.push_back(err);
+                } else {
+                    ++skippedOverflow_;
+                }
             });
 
     // Drive overview
@@ -213,6 +219,8 @@ void MainWindow::onStartStop()
         model_->onScanStarted(QString{}, target);
         activeTaskId_ = scanner_->startScan(target);
         scanning_ = true;
+        skippedPaths_.clear();
+        skippedOverflow_ = 0;
         startStopBtn_->setText(QStringLiteral("Stop"));
         statusLabel_->setText(QStringLiteral("Scanning…"));
         countsLabel_->setText(QString{});
@@ -233,12 +241,32 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
     startStopBtn_->setText(QStringLiteral("Start"));
     startStopBtn_->setEnabled(true);
     progress_->setVisible(false);
-    statusLabel_->setText(QStringLiteral("Ready"));
+    const qsizetype skippedTotal = skippedPaths_.size() + skippedOverflow_;
+    if (skippedTotal > 0) {
+        statusLabel_->setText(QStringLiteral("Ready (%1 skipped)").arg(skippedTotal));
+    } else {
+        statusLabel_->setText(QStringLiteral("Ready"));
+    }
     countsLabel_->setText(QStringLiteral("Files: %1  Folders: %2  Total: %3")
                               .arg(files)
                               .arg(dirs)
                               .arg(formatBytes(bytes, unitsCombo_->currentText())));
     onTreeSelectionChanged();
+    if (skippedTotal > 0) {
+        QString details = skippedPaths_.join(QStringLiteral("\n"));
+        if (skippedOverflow_ > 0) {
+            details += QStringLiteral("\n… and %1 more.").arg(skippedOverflow_);
+        }
+        QMessageBox summary(QMessageBox::Warning, QStringLiteral("Scan completed with skipped items"),
+                            QStringLiteral("%1 director%2 could not be scanned and %3 excluded "
+                                           "from the results.")
+                                .arg(skippedTotal)
+                                .arg(skippedTotal == 1 ? QStringLiteral("y") : QStringLiteral("ies"))
+                                .arg(skippedTotal == 1 ? QStringLiteral("is") : QStringLiteral("are")),
+                            QMessageBox::Ok, this);
+        summary.setDetailedText(details);
+        summary.exec();
+    }
 }
 
 void MainWindow::onTreeSelectionChanged()

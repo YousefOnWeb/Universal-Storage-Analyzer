@@ -67,6 +67,12 @@ private:
 
     QString activeTaskId_{};
     bool scanning_{false};
+    // Non-fatal scan errors collected during a scan (fatal ones pop up
+    // immediately). Shown together in one summary dialog on finish; capped
+    // so pathological volumes cannot grow the list without bound.
+    static constexpr int kMaxSkippedPaths{1000};
+    QStringList skippedPaths_{};
+    int skippedOverflow_{0};
 
 protected:
     void closeEvent(QCloseEvent* event) override;
