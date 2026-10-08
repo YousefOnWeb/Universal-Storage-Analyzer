@@ -2,6 +2,7 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
+#include <QMutex>
 #include <QSqlDatabase>
 #include <QStandardPaths>
 #include <QTextStream>
@@ -16,9 +17,19 @@
 #include "../ui/ThemeManager.h"
 
 static QFile* g_sessionLogFile = nullptr;
+// Intentionally leaked: the handler can fire during static teardown,
+// after function-local statics would have been destroyed.
+QMutex* sessionLogMutex()
+{
+    static auto* mutex = new QMutex{};
+    return mutex;
+}
 
 void sessionLogHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
+    // Engine worker threads and the GUI thread all log through here;
+    // QFile is reentrant, not thread-safe, so serialize every access.
+    const QMutexLocker lock{sessionLogMutex()};
     if (!g_sessionLogFile) return;
     Q_UNUSED(context);
     
