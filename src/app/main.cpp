@@ -22,7 +22,9 @@ void sessionLogHandler(QtMsgType type, const QMessageLogContext &context, const 
     if (!g_sessionLogFile) return;
     Q_UNUSED(context);
     
-    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss.zzz");
+    QString timestamp =
+        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyy-MM-ddTHH:mm:ss.zzz"))
+        + QStringLiteral("Z");
     QString level;
     switch (type) {
     case QtDebugMsg:    level = "DBG"; break;

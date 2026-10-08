@@ -18,6 +18,15 @@
 - Error severity is decided at the engine source: fatal (scan cannot
   proceed) pops up immediately; per-directory skips (108/sec observed on
   real volumes) are collected and shown once at scan end.
+- Session telemetry scope (deliberate): JSON telemetry lines (periodic +
+  final) with scan/thread/subsystem IDs, rates, queue depth, and backend;
+  OS error codes on enumerate failures; ISO-8601 UTC session timestamps.
+  Explicitly deferred to later milestones: async log ring buffer (current
+  volume is ~4 lines/sec, no hot-path logging exists), path redaction
+  (no export bundles yet), physical disk monitor (needs platform APIs +
+  an adaptive engine that does not exist yet), cloud/dedup telemetry (no
+  such subsystems exist yet), per-file TRACE, microsecond resolution
+  (Qt/OS clock limits).
 
 ## Next tasks
 
