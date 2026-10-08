@@ -27,7 +27,7 @@ public:
     MftFinder();
     ~MftFinder() override;
 
-    bool open(const std::filesystem::path& dir) override;
+    bool open(const std::filesystem::path& dir, std::uint64_t tokenHint = 0) override;
     bool findNext() override;
     const DirEntry& current() const override { return current_; }
     void close() override;
@@ -42,6 +42,7 @@ public:
 
 private:
     struct SharedVolume;
+    bool openRecord(std::size_t index, const std::filesystem::path& dir);
     std::shared_ptr<SharedVolume> volume_{};
     std::filesystem::path openedPath_{};
     std::uint32_t openedRecord_{0};

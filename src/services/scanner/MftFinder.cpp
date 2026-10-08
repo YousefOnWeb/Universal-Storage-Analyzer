@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <atomic>
 
 #ifdef _WIN32
 
@@ -46,28 +47,6 @@ struct RaiiHandle {
     {
     }
 };
-
-bool readExact(HANDLE h, std::uint64_t offset, unsigned char* out, std::size_t bytes)
-{
-    // Positioned synchronous reads (the handle is opened without overlapped
-    // I/O, so SetFilePointerEx + ReadFile is the correct pairing).
-    std::size_t done{0};
-    while (done < bytes) {
-        LARGE_INTEGER pos{};
-        pos.QuadPart = static_cast<LONGLONG>(offset + done);
-        if (!SetFilePointerEx(h, pos, nullptr, FILE_BEGIN)) {
-            return false;
-        }
-        DWORD got{0};
-        const DWORD want = static_cast<DWORD>(
-            (std::min)(bytes - done, static_cast<std::size_t>(0x40000000)));
-        if (!ReadFile(h, out + done, want, &got, nullptr) || got == 0) {
-            return false;
-        }
-        done += got;
-    }
-    return true;
-}
 
 int compareNoCase(const std::wstring& a, const std::wstring& b)
 {
@@ -418,25 +397,114 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         return fail("truncated extent walk (below valid data length)");
     }
 
-    // Bulk sequential reads through the plain volume handle. Unbuffered
-    // I/O is unnecessary here: extents arrive in stream order and OS
-    // readahead covers it; page-aligned memory is kept regardless.
+    // High-performance asynchronous MFT reading via multiple threads and OVERLAPPED I/O.
     void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(total), MEM_COMMIT | MEM_RESERVE,
                              PAGE_READWRITE);
     if (raw == nullptr) {
         return fail("image allocation (VirtualAlloc)");
     }
     unsigned char* image = static_cast<unsigned char*>(raw);
+
+    struct ReadTask {
+        std::uint64_t diskOffset;
+        std::uint64_t fileOffset;
+        DWORD length;
+    };
+    std::vector<ReadTask> readTasks;
     for (const auto& e : extents) {
         std::uint64_t done{0};
         while (done < e.length) {
-            const std::uint64_t step = (std::min)(e.length - done, kReadChunk);
-            if (!readExact(volume.h, e.diskOffset + done, image + e.fileOffset + done, step)) {
-                VirtualFree(raw, 0, MEM_RELEASE);
-                return fail("MFT extent read");
-            }
+            const DWORD step = static_cast<DWORD>((std::min)(e.length - done, static_cast<std::uint64_t>(kReadChunk)));
+            readTasks.push_back({e.diskOffset + done, e.fileOffset + done, step});
             done += step;
         }
+    }
+
+    RaiiHandle asyncVol{CreateFileW(volumePath.c_str(), GENERIC_READ,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, nullptr)};
+    if (asyncVol.h == INVALID_HANDLE_VALUE) {
+        VirtualFree(raw, 0, MEM_RELEASE);
+        return fail("async volume open");
+    }
+
+    std::atomic<std::size_t> taskIdx{0};
+    std::atomic<bool> readFailed{false};
+    std::string readErrorMsg;
+    std::mutex readErrorMutex;
+
+    auto readWorker = [&]() {
+        RaiiHandle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+        if (event.h == nullptr) {
+            readFailed.store(true, std::memory_order_relaxed);
+            return;
+        }
+        
+        while (true) {
+            std::size_t i = taskIdx.fetch_add(1, std::memory_order_relaxed);
+            if (i >= readTasks.size() || readFailed.load(std::memory_order_relaxed)) {
+                break;
+            }
+            const auto& task = readTasks[i];
+            
+            OVERLAPPED overlapped{};
+            overlapped.Offset = static_cast<DWORD>(task.diskOffset & 0xFFFFFFFF);
+            overlapped.OffsetHigh = static_cast<DWORD>(task.diskOffset >> 32);
+            overlapped.hEvent = event.h;
+
+            DWORD bytesRead = 0;
+            if (ReadFile(asyncVol.h, image + task.fileOffset, task.length, &bytesRead, &overlapped) == 0) {
+                DWORD err = GetLastError();
+                if (err != ERROR_IO_PENDING) {
+                    readFailed.store(true, std::memory_order_relaxed);
+                    std::lock_guard<std::mutex> lock(readErrorMutex);
+                    readErrorMsg = "MFT extent read (ReadFile err=" + std::to_string(err) + ")";
+                    break;
+                }
+                
+                DWORD waitResult;
+                while ((waitResult = WaitForSingleObject(event.h, 50)) == WAIT_TIMEOUT) {
+                    if (readFailed.load(std::memory_order_relaxed)) {
+                        CancelIoEx(asyncVol.h, &overlapped);
+                        break;
+                    }
+                }
+                
+                if (waitResult == WAIT_OBJECT_0) {
+                    if (!GetOverlappedResult(asyncVol.h, &overlapped, &bytesRead, TRUE) || bytesRead != task.length) {
+                        readFailed.store(true, std::memory_order_relaxed);
+                        std::lock_guard<std::mutex> lock(readErrorMutex);
+                        readErrorMsg = "MFT extent read (GetOverlappedResult err=" + std::to_string(GetLastError()) + ")";
+                        break;
+                    }
+                }
+            } else if (bytesRead != task.length) {
+                readFailed.store(true, std::memory_order_relaxed);
+                std::lock_guard<std::mutex> lock(readErrorMutex);
+                readErrorMsg = "MFT extent read (incomplete sync read)";
+                break;
+            }
+            ResetEvent(event.h);
+        }
+    };
+
+    unsigned ioThreads = std::thread::hardware_concurrency();
+    if (ioThreads == 0) ioThreads = 4;
+    ioThreads = (std::min)(ioThreads, kMaxParseThreads);
+    
+    std::vector<std::thread> readThreads;
+    readThreads.reserve(ioThreads);
+    for (unsigned t = 0; t < ioThreads; ++t) {
+        readThreads.emplace_back(readWorker);
+    }
+    for (auto& w : readThreads) {
+        w.join();
+    }
+
+    if (readFailed.load()) {
+        VirtualFree(raw, 0, MEM_RELEASE);
+        lastError_ = readErrorMsg;
+        return false;
     }
 
     // Parallel record parsing (stride across threads for even load).
@@ -514,11 +582,21 @@ bool MftFinder::volumeLoaded() const
     return volume_ != nullptr;
 }
 
-bool MftFinder::open(const std::filesystem::path& dir)
+bool MftFinder::open(const std::filesystem::path& dir, std::uint64_t tokenHint)
 {
     close();
     if (!loadVolume(dir)) {
         return false;
+    }
+    // O(1) fast path: the engine hands back the record number observed
+    // during the parent's enumeration, skipping path resolution entirely.
+    if (tokenHint > 0 && tokenHint <= 0xFFFFFFFFULL) {
+        const auto hinted = volume_->byNumber.find(static_cast<std::uint32_t>(tokenHint));
+        if (hinted != volume_->byNumber.end()
+            && volume_->records[hinted->second].isDirectory) {
+            return openRecord(hinted->second, dir);
+        }
+        // Stale or foreign token: fall through to path resolution.
     }
     // Resolve the directory by descending from the volume root.
     std::uint32_t current = kRootRecordNumber;
@@ -560,13 +638,18 @@ bool MftFinder::open(const std::filesystem::path& dir)
         lastError_ = "directory record missing from volume index";
         return false;
     }
-    if (!volume_->records[recIt->second].isDirectory) {
+    return openRecord(recIt->second, dir);
+}
+
+bool MftFinder::openRecord(std::size_t index, const std::filesystem::path& dir)
+{
+    if (!volume_->records[index].isDirectory) {
         lastError_ = "target is not a directory";
         return false;
     }
-    openedRecord_ = current;
+    openedRecord_ = volume_->records[index].number;
     openedPath_ = dir;
-    const auto childIt = volume_->children.find(current);
+    const auto childIt = volume_->children.find(openedRecord_);
     children_ = (childIt != volume_->children.end()) ? childIt->second : std::vector<std::uint32_t>{};
     position_ = 0;
     enumerationStarted_ = false;
@@ -607,6 +690,7 @@ bool MftFinder::findNext()
         cur.logicalSize = rec.isDirectory ? 0 : rec.logicalSize;
         cur.physicalSize = rec.isDirectory ? 0 : rec.physicalSize;
         cur.lastWriteTs = rec.lastWriteTs;
+        cur.backendToken = rec.number;
         current_ = std::move(cur);
         return true;
     }
@@ -622,7 +706,7 @@ namespace usa::scanner {
 MftFinder::MftFinder() = default;
 MftFinder::~MftFinder() = default;
 
-bool MftFinder::open(const std::filesystem::path&)
+bool MftFinder::open(const std::filesystem::path&, std::uint64_t)
 {
     return false;
 }
