@@ -19,6 +19,10 @@ struct DirEntry {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0}; // allocated on disk; best effort per backend
     std::uint64_t lastWriteTs{0}; // Unix seconds, 0 when unknown
+    // Backend-opaque identity of this entry, enabling O(1) re-opening
+    // without path resolution (e.g. the volume record number when produced
+    // by the direct reader). Zero when the backend offers none.
+    std::uint64_t backendToken{0};
 };
 
 enum class BackendKind { NativeDirectory, DirectMft };
@@ -34,7 +38,9 @@ public:
 
     // Open a directory for enumeration. Returns false when the directory
     // cannot be enumerated (access denied, vanished, unsupported).
-    virtual bool open(const std::filesystem::path& dir) = 0;
+    // tokenHint carries a backendToken from a previous enumeration for O(1)
+    // re-opening; 0 (or an unknown token) falls back to path resolution.
+    virtual bool open(const std::filesystem::path& dir, std::uint64_t tokenHint = 0) = 0;
     // Advance to the next child. Returns false at end of directory.
     virtual bool findNext() = 0;
     // Valid after findNext() returns true, until the next findNext().

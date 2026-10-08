@@ -26,7 +26,7 @@ public:
     DirectoryFinder();
     ~DirectoryFinder() override;
 
-    bool open(const std::filesystem::path& dir) override;
+    bool open(const std::filesystem::path& dir, std::uint64_t tokenHint = 0) override;
     bool findNext() override;
     const DirEntry& current() const override { return current_; }
     void close() override;

@@ -124,7 +124,7 @@ DirectoryFinder::~DirectoryFinder()
     close();
 }
 
-bool DirectoryFinder::open(const std::filesystem::path& dir)
+bool DirectoryFinder::open(const std::filesystem::path& dir, std::uint64_t /*tokenHint*/)
 {
     close();
     lastError_.clear();
@@ -278,7 +278,7 @@ namespace usa::scanner {
 DirectoryFinder::DirectoryFinder() = default;
 DirectoryFinder::~DirectoryFinder() = default;
 
-bool DirectoryFinder::open(const std::filesystem::path& dir)
+bool DirectoryFinder::open(const std::filesystem::path& dir, std::uint64_t /*tokenHint*/)
 {
     close();
     lastError_.clear();
