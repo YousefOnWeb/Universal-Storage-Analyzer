@@ -118,6 +118,24 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
     if (role == Qt::UserRole) {
         return node->id;
     }
+    if (role == Roles::SortRole) {
+        switch (index.column()) {
+        case ColName:
+            return node->name;
+        case ColSize:
+            return static_cast<quint64>(node->logicalSize);
+        case ColAllocated:
+            return static_cast<quint64>(node->allocatedSize);
+        case ColFiles:
+            return node->isDirectory ? QVariant(node->fileCount) : QVariant(quint32(0));
+        case ColFolders:
+            return node->isDirectory ? QVariant(node->folderCount) : QVariant(quint32(0));
+        case ColModified:
+            return static_cast<qint64>(node->lastModifiedTs);
+        default:
+            return {};
+        }
+    }
     return {};
 }
 
@@ -201,55 +219,72 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
 
 void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileRecord> batch)
 {
-    for (const FileRecord& rec : batch) {
-        if (rec.id == 0) {
-            continue; // root already exists
-        }
-        if (owned_.find(rec.id) != owned_.end()) {
+    int i = 0;
+    const int n = static_cast<int>(batch.size());
+    while (i < n) {
+        const FileRecord& firstRec = batch[i];
+        if (firstRec.id == 0 || owned_.find(firstRec.id) != owned_.end()) {
+            ++i;
             continue;
         }
-        const auto parentIt = owned_.find(rec.parentId);
+
+        const quint32 currentParentId = firstRec.parentId;
+        const auto parentIt = owned_.find(currentParentId);
         Node* parentNode = parentIt != owned_.end() ? parentIt->second.get() : root_;
         if (parentNode == nullptr) {
             parentNode = root_;
         }
 
-        const QModelIndex parentIdx =
-            (parentNode == root_) ? QModelIndex{} : indexForNodeId(parentNode->id);
-        const int row = static_cast<int>(parentNode->children.size());
-        beginInsertRows(parentIdx, row, row);
-
-        auto node = std::make_unique<Node>();
-        node->id = rec.id;
-        node->parentId = parentNode->id;
-        node->row = row;
-        node->name = rec.name;
-        node->logicalSize = rec.logicalSize;
-        node->allocatedSize = rec.allocatedSize;
-        node->lastModifiedTs = rec.lastModifiedTs;
-        node->isDirectory = rec.isDirectory;
-        node->parent = parentNode;
-        Node* raw = node.get();
-        owned_.emplace(raw->id, std::move(node));
-        parentNode->children.push_back(raw);
-
-        // Aggregation lives in the scan engine: it streams absolute
-        // per-directory totals via branchMetricsUpdated(), which this model
-        // stores verbatim. Per-file upward propagation here would count
-        // every byte twice, so nodes are stored exactly as delivered.
-        if (!raw->isDirectory) {
-            totalLogical_ += raw->logicalSize;
+        // Count contiguous records with the same parentId that are NOT yet in owned_
+        int count = 1;
+        while (i + count < n) {
+            const FileRecord& nextRec = batch[i + count];
+            if (nextRec.id == 0 || owned_.find(nextRec.id) != owned_.end()) {
+                break;
+            }
+            if (nextRec.parentId != currentParentId) {
+                break;
+            }
+            ++count;
         }
 
-        // A summary may have arrived before its node (see
-        // onBranchMetricsUpdated); apply it now so nothing is lost.
-        if (const auto pending = pendingSummaries_.find(raw->id);
-            pending != pendingSummaries_.end()) {
-            applyMetrics(raw, pending->second);
-            pendingSummaries_.erase(pending);
+        const QModelIndex parentIdx =
+            (parentNode == root_) ? QModelIndex{} : indexForNodeId(parentNode->id);
+        const int firstRow = static_cast<int>(parentNode->children.size());
+        const int lastRow = firstRow + count - 1;
+
+        beginInsertRows(parentIdx, firstRow, lastRow);
+
+        for (int j = 0; j < count; ++j) {
+            const FileRecord& rec = batch[i + j];
+            auto node = std::make_unique<Node>();
+            node->id = rec.id;
+            node->parentId = parentNode->id;
+            node->row = static_cast<int>(parentNode->children.size());
+            node->name = rec.name;
+            node->logicalSize = rec.logicalSize;
+            node->allocatedSize = rec.allocatedSize;
+            node->lastModifiedTs = rec.lastModifiedTs;
+            node->isDirectory = rec.isDirectory;
+            node->parent = parentNode;
+            
+            Node* raw = node.get();
+            owned_.emplace(raw->id, std::move(node));
+            parentNode->children.push_back(raw);
+
+            if (!raw->isDirectory) {
+                totalLogical_ += raw->logicalSize;
+            }
+
+            if (const auto pending = pendingSummaries_.find(raw->id);
+                pending != pendingSummaries_.end()) {
+                applyMetrics(raw, pending->second);
+                pendingSummaries_.erase(pending);
+            }
         }
 
         endInsertRows();
+        i += count;
     }
 }
 

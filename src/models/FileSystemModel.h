@@ -27,6 +27,10 @@ public:
         ColCount = 6,
     };
 
+    enum Roles : int {
+        SortRole = Qt::UserRole + 1,
+    };
+
     explicit FileSystemModel(QObject* parent = nullptr);
 
     // QAbstractItemModel
@@ -84,6 +88,9 @@ private:
     // dataChanged (which drives proxy re-filtering and repaints) fires at
     // most every 100 ms, bounded per tick so burst catch-up (e.g. the
     // end-of-scan sweep) amortizes instead of stalling the event loop.
+    // The bound must stay generous: at 100/tick a 330k sweep would need
+    // minutes to drain; at 2000 it settles in seconds with ~20 ms of work
+    // per tick, keeping the loop responsive throughout.
     // Without both bounds, hundreds of thousands of summary signals per
     // scan would keep the event loop from ever idling.
     static constexpr int kMaxEmissionsPerTick{2000};

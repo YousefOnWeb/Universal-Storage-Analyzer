@@ -38,6 +38,17 @@
   smooth catch-up, model view updates coalesce at 10 Hz, and live
   resorting pauses during scans. Bench: 48k vs 288k emissions in the
   same drain window.
+- Crash fix (fail-fast 0xc0000409 at scan start, confirmed via WER fault
+  bucket): sparse MFT runs advanced the VCN walk without emitting
+  extents, so later fileOffsets overshot the summed image buffer — heap
+  overflow on volumes with sparse MFT regions. The image is now sized by
+  span (holes stay zero-filled, which is also what sparse clusters
+  contain). Verified by review + suite; needs one elevated scan to
+  confirm on the affected volume.
+- Model updates: batched row inserts by parent, numeric sort role
+  (sorts compare int64s — 2.2 s on 2M rows vs guaranteed hang before),
+  coalescing cap kept generous (2000/tick) so the end-of-scan sweep
+  drains in seconds, not minutes.
 
 ## Next tasks
 

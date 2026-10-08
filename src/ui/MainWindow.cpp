@@ -64,6 +64,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     treeProxy_->setSourceModel(model_);
     treeProxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
     treeProxy_->setFilterKeyColumn(0);
+    treeProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     tree_->setModel(treeProxy_);
 
     tabs_ = new QTabWidget(splitter_);
@@ -76,6 +77,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     detailsProxy_->setSourceModel(detailsModel_);
     detailsProxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
     detailsProxy_->setFilterKeyColumn(0);
+    detailsProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     detailsView_->setModel(detailsProxy_);
     detailsView_->horizontalHeader()->setStretchLastSection(true);
     tabs_->addTab(detailsView_, QStringLiteral("Details"));
