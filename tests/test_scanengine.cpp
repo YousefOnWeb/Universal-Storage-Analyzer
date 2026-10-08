@@ -160,6 +160,38 @@ private slots:
         QCOMPARE(result.fileCount, static_cast<std::uint64_t>(0));
     }
 
+    void telemetryEndsWithStructuredSummary()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        writeBytes(root / "a.bin", 100);
+        writeBytes(root / "b.bin", 200);
+        std::filesystem::create_directory(root / "sub");
+        writeBytes(root / "sub" / "c.bin", 300);
+
+        ScanEngine engine{};
+        std::vector<std::string> telemetry{};
+        std::mutex telemetryMutex{};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        cb.onTelemetry = [&](const std::string& json) {
+            std::lock_guard<std::mutex> lock{telemetryMutex};
+            telemetry.push_back(json);
+        };
+        const auto result = engine.run(root, cb, "t9");
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(3));
+        QVERIFY(!telemetry.empty()); // at minimum the final summary always fires
+
+        // The final summary carries the scan id and exact totals.
+        const std::string& last = telemetry.back();
+        QVERIFY(last.find("\"scan_id\":\"t9\"") != std::string::npos);
+        QVERIFY(last.find("\"files\":3") != std::string::npos);
+        QVERIFY(last.find("\"backend\":\"NativeDirectory\"") != std::string::npos);
+        QVERIFY(last.find("ScanEngine/NativeDirectory/final") != std::string::npos);
+        QVERIFY(last.find("\"timestamp\":\"") != std::string::npos);
+    }
+
     void fileTargetIsFatal()
     {
         // A file is not scannable: report explicitly instead of silently

@@ -80,6 +80,8 @@ private slots:
         DirectoryFinder finder{};
         QVERIFY(!finder.open(std::filesystem::path{"Z:/definitely-not-here-usa-test"}));
         QVERIFY(!finder.findNext());
+        // The failure carries the OS-level reason for diagnostics.
+        QVERIFY(!finder.lastError().empty());
     }
 
     void marksSymlinkAsReparsePoint()
