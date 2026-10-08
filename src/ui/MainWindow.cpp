@@ -221,6 +221,11 @@ void MainWindow::onStartStop()
         scanning_ = true;
         skippedPaths_.clear();
         skippedOverflow_ = 0;
+        // Freeze live resorting/filtering while rows stream in: per-insert
+        // re-sorts over a million-row model would stall the event loop.
+        // One full re-sort happens on finish instead.
+        treeProxy_->setDynamicSortFilter(false);
+        detailsProxy_->setDynamicSortFilter(false);
         startStopBtn_->setText(QStringLiteral("Stop"));
         statusLabel_->setText(QStringLiteral("Scanning…"));
         countsLabel_->setText(QString{});
@@ -241,6 +246,8 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
     startStopBtn_->setText(QStringLiteral("Start"));
     startStopBtn_->setEnabled(true);
     progress_->setVisible(false);
+    treeProxy_->setDynamicSortFilter(true);
+    detailsProxy_->setDynamicSortFilter(true);
     const qsizetype skippedTotal = skippedPaths_.size() + skippedOverflow_;
     if (skippedTotal > 0) {
         statusLabel_->setText(QStringLiteral("Ready (%1 skipped)").arg(skippedTotal));
