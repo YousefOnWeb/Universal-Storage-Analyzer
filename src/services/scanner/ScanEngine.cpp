@@ -1,5 +1,7 @@
 #include "ScanEngine.h"
 
+#include "Utf8.h"
+
 #include <algorithm>
 #include <chrono>
 #include <ctime>
@@ -10,21 +12,19 @@
 namespace usa::scanner {
 namespace {
 
-// std::filesystem::path::u8string() yields char8_t units; the engine speaks
-// UTF-8 std::string across its boundary, so convert explicitly.
+// Engine names/paths go through the infallible converter: volume names
+// may hold unpaired surrogates that make std::filesystem converters throw,
+// which would terminate the worker thread (and the process) on the spot.
 std::string utf8Name(const std::filesystem::path& p)
 {
-    const std::filesystem::path base = p.filename().empty() ? p : p.filename();
-    const auto raw = base.u8string();
-    return {reinterpret_cast<const char*>(raw.data()), raw.size()};
+    return detail::pathToUtf8(p, true);
 }
 
 // Full-path variant for diagnostics: error messages must show WHERE,
 // not just the leaf name.
 std::string utf8Path(const std::filesystem::path& p)
 {
-    const auto raw = p.u8string();
-    return {reinterpret_cast<const char*>(raw.data()), raw.size()};
+    return detail::pathToUtf8(p, false);
 }
 
 // ISO-8601 UTC with fractional seconds for machine-parsable log lines.
