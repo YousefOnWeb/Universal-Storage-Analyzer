@@ -11,23 +11,14 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include "ChartUtils.h"
+
 #include "../services/scanner/TreemapLayout.h"
 
 namespace {
 
 constexpr double kCullPx{3.0};
 constexpr int kDebounceMs{250};
-
-// Stable spread of ids across the hue wheel (Knuth multiplicative hash).
-int hueFor(quint32 id)
-{
-    return static_cast<int>((static_cast<std::uint64_t>(id) * 2654435761ULL) % 360ULL);
-}
-
-QString formatBytes(quint64 bytes)
-{
-    return QLocale{}.toString(bytes) + QStringLiteral(" bytes");
-}
 
 } // namespace
 
@@ -97,7 +88,6 @@ void TreemapWidget::recompute()
         for (const auto& e : entries) {
             byId.emplace(e.id, &e);
         }
-        const bool light = palette().color(QPalette::Window).lightness() > 128;
         tiles_.reserve(laid.size());
         for (const auto& lt : laid) {
             const auto it = byId.find(lt.id);
@@ -111,8 +101,7 @@ void TreemapWidget::recompute()
             t.name = e->name;
             t.bytes = e->logicalSize;
             t.isDir = e->isDirectory;
-            QColor c{};
-            c.setHsv(hueFor(t.id), t.isDir ? 150 : 90, light ? 225 : 165);
+            QColor c = usa::ui::chartColor(t.id, t.isDir, this);
             t.color = c;
             tiles_.push_back(std::move(t));
         }
@@ -237,7 +226,7 @@ void TreemapWidget::mouseMoveEvent(QMouseEvent* event)
         QToolTip::showText(
             mapToGlobal(event->position().toPoint()),
             QStringLiteral("%1\n%2 (%3%)")
-                .arg(nodePath(t.id), formatBytes(t.bytes),
+                .arg(nodePath(t.id), usa::ui::chartBytes(t.bytes),
                      QString::number(share, 'f', 1)),
             this);
     } else {

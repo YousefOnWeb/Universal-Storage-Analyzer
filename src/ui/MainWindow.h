@@ -5,6 +5,7 @@
 #include "../models/DetailsTableModel.h"
 #include "../models/FileSystemModel.h"
 #include "../services/ScannerService.h"
+#include "BarWidget.h"
 #include "TreemapWidget.h"
 
 #include <QComboBox>
@@ -59,6 +60,7 @@ private:
     QSplitter* splitter_{nullptr};
     QSplitter* rightSplitter_{nullptr};
     TreemapWidget* treemap_{nullptr};
+    BarWidget* bar_{nullptr};
     QLineEdit* quickSearch_{nullptr};
     QLineEdit* targetEdit_{nullptr};
     QPushButton* startStopBtn_{nullptr};

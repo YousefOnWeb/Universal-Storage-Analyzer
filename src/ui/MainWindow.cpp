@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "BarWidget.h"
 #include "ThemeManager.h"
 #include "TreemapWidget.h"
 
@@ -11,6 +12,7 @@
 #include <QHeaderView>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QScrollArea>
 #include <QSettings>
 #include <QStatusBar>
 #include <QStorageInfo>
@@ -83,6 +85,11 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     detailsView_->setModel(detailsProxy_);
     detailsView_->horizontalHeader()->setStretchLastSection(true);
     tabs_->addTab(detailsView_, QStringLiteral("Details"));
+    bar_ = new BarWidget(model_);
+    auto* barScroll = new QScrollArea(tabs_);
+    barScroll->setWidget(bar_);
+    barScroll->setWidgetResizable(true);
+    tabs_->addTab(barScroll, QStringLiteral("Bars"));
     // Placeholders for Milestone 2 analytics (kept disabled, not removed,
     // so the tab contract is visible without fake data).
     for (const QString& name :
@@ -137,6 +144,20 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(model_, &FileSystemModel::dataChanged, treemap_, &TreemapWidget::refreshSoon);
     connect(model_, &FileSystemModel::modelResetForNewScan, this,
             [this](const QString&) { treemap_->setRootId(0); });
+    connect(model_, &FileSystemModel::rowsInserted, bar_, &BarWidget::refreshSoon);
+    connect(model_, &FileSystemModel::dataChanged, bar_, &BarWidget::refreshSoon);
+    connect(model_, &FileSystemModel::modelResetForNewScan, this,
+            [this](const QString&) { bar_->setRootId(0); });
+    connect(bar_, &BarWidget::barClicked, this, [this](quint32 id) { selectTreeNode(id); });
+    connect(bar_, &BarWidget::barDoubleClicked, this, [this](quint32 id) {
+        selectTreeNode(id);
+        if (model_->isDirectoryNode(id)) {
+            const QModelIndex proxy = treeProxy_->mapFromSource(model_->indexForNodeId(id));
+            if (proxy.isValid()) {
+                tree_->expand(proxy);
+            }
+        }
+    });
     connect(treemap_, &TreemapWidget::tileClicked, this,
             [this](quint32 id) { selectTreeNode(id); });
     connect(treemap_, &TreemapWidget::tileDoubleClicked, this, [this](quint32 id) {
@@ -328,6 +349,7 @@ void MainWindow::onTreeSelectionChanged()
     const quint32 id = model_->nodeIdForIndex(src);
     if (model_->isDirectoryNode(id)) {
         treemap_->setRootId(id);
+        bar_->setRootId(id);
     }
 }
 

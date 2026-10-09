@@ -15,6 +15,7 @@
 
 #include "../src/models/FileSystemModel.h"
 #include "../src/services/ScannerService.h"
+#include "../src/ui/BarWidget.h"
 #include "../src/ui/MainWindow.h"
 #include "../src/ui/ThemeManager.h"
 #include "../src/ui/TreemapWidget.h"
@@ -249,6 +250,62 @@ private slots:
         // Selecting a file keeps the treemap's folder context.
         tree->setCurrentIndex(proxyRowByName(QStringLiteral("f1")));
         QCOMPARE(treemap->rootId(), static_cast<quint32>(1));
+    }
+
+    void barsShowTopChildrenAndDriveSelection()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+        BranchMetrics dm{};
+        dm.nodeId = 1;
+        dm.logicalSize = 500;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), dm);
+
+        auto* bars = win.findChild<BarWidget*>();
+        QVERIFY(bars != nullptr);
+        bars->refreshSoon(); // live model churn refreshes debounced
+        QTest::qWait(500);
+        QCOMPARE(bars->barCount(), 2); // D (500) + f1 (100), desc
+        QCOMPARE(bars->rootId(), static_cast<quint32>(0));
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+
+        // Bar click drives the tree through real wiring.
+        QSignalSpy clickedSpy{bars, &BarWidget::barClicked};
+        bars->selectRow(1); // f1, the smaller bar
+        QCOMPARE(clickedSpy.count(), 1);
+        QCOMPARE(clickedSpy.at(0).at(0).toUInt(), static_cast<quint32>(2));
+        const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
+        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(2));
+
+        // Bars follow folder selection like the treemap does.
+        for (int r = 0; r < tree->model()->rowCount(); ++r) {
+            const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+            if (tree->model()->data(idx).toString() == QStringLiteral("D")) {
+                tree->setCurrentIndex(idx);
+            }
+        }
+        QCOMPARE(bars->rootId(), static_cast<quint32>(1));
+        QCOMPARE(bars->barCount(), 0); // D is empty in this fixture
     }
 };
 

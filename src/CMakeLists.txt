@@ -12,6 +12,7 @@ add_executable(usa
     models/DetailsTableModel.cpp
     ui/ThemeManager.cpp
     ui/TreemapWidget.cpp
+    ui/BarWidget.cpp
     ui/MainWindow.cpp
     resources/app.qrc
 )
