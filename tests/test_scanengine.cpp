@@ -146,6 +146,47 @@ private slots:
         QVERIFY(seen.load() >= 1);
     }
 
+    void workerCapOfOneStillCompletes()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        writeBytes(root / "a.bin", 100);
+        std::filesystem::create_directory(root / "sub");
+        writeBytes(root / "sub" / "b.bin", 200);
+
+        ScanEngine engine{};
+        engine.setWorkerCap(1); // all but one thread park holding no job
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        const auto result = engine.run(root, cb);
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(2));
+        QCOMPARE(result.totalBytes, static_cast<std::uint64_t>(300));
+        QVERIFY(!result.cancelled);
+    }
+
+    void throttleSamplesParkAndReleaseCap()
+    {
+        ScanEngine engine{};
+        QCOMPARE(engine.workerCap(), static_cast<unsigned>(ScanEngine::kMaxWorkers));
+        usa::scanner::ThrottleInput bad{};
+        bad.available = true;
+        bad.latencyMs = 500.0;
+        for (int i{0}; i < 3; ++i) {
+            engine.applyThrottleSample(bad);
+        }
+        QCOMPARE(engine.workerCap(), 1u);
+        usa::scanner::ThrottleInput good{};
+        good.available = true;
+        for (int i{0}; i < 10; ++i) {
+            engine.applyThrottleSample(good);
+        }
+        QCOMPARE(engine.workerCap(), static_cast<unsigned>(ScanEngine::kMaxWorkers));
+        // Clamped, never zero (a zero cap would park every worker forever).
+        engine.setWorkerCap(0);
+        QCOMPARE(engine.workerCap(), 1u);
+    }
+
     void cancelWhilePausedTerminates()
     {
         QTemporaryDir tmp{};

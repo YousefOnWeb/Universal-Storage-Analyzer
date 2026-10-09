@@ -5,9 +5,11 @@
 #include "DirectoryFinder.h"
 #include "Finder.h"
 #include "MftFinder.h"
+#include "ThrottlePolicy.h"
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -66,6 +68,9 @@ struct EngineCallbacks {
     // snapshots (at most ~4/sec engine-wide) plus one final summary.
     // Kept out of the hot path — never per file.
     std::function<void(const std::string&)> onTelemetry{};
+    // Throttle transitions for status display. Emitted at most on change,
+    // through the same serialized path as the other callbacks.
+    std::function<void(bool throttled)> onThrottleChanged{};
     // Informational notices (backend downgrades, policy decisions): NOT
     // errors. They must never enter the error channel, where the UI would
     // collect them as skipped directories.
@@ -111,6 +116,12 @@ public:
     // invoke them with a direct connection (no event-loop round trip).
     void setPaused(bool paused);
     void requestCancel();
+    // Throttle control, same thread-safety contract: only atomics plus
+    // the permit condition wake. The sampler (or tests) may call these
+    // directly from any thread, mid-scan.
+    void setWorkerCap(unsigned n);
+    unsigned workerCap() const;
+    void applyThrottleSample(const ThrottleInput& sample);
     // Analytics configuration. Pre-run only (single-flight engine).
     void setAgeBuckets(std::vector<std::uint64_t> days);
     void setTopN(std::size_t n);
@@ -134,7 +145,8 @@ private:
     };
 
     std::unique_ptr<Finder> makeFinder();
-    void workerMain(const EngineCallbacks& callbacks);
+    void workerMain(const EngineCallbacks& callbacks, unsigned index);
+    void waitForPermit(unsigned index);
     void emitBatch(const EngineCallbacks& callbacks, std::vector<EngineNode>& batch);
     void emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc);
     void emitSweep(const EngineCallbacks& callbacks);
@@ -160,6 +172,11 @@ private:
     std::mutex emitMutex_{}; // serializes all callback invocations
     std::mutex dirsMutex_{}; // guards allDirs_
     std::vector<std::unique_ptr<DirAcc>> allDirs_{};
+    ThrottlePolicy throttlePolicy_{};
+    std::atomic_uint workerCap_{kMaxWorkers};
+    std::atomic_bool lastThrottleEmitted_{false};
+    std::mutex capMutex_{};
+    std::condition_variable capCv_{};
 };
 
 } // namespace usa::scanner

@@ -72,6 +72,41 @@ void ScanEngine::requestCancel()
 {
     userCancelled_.store(true, std::memory_order_relaxed);
     queue_.requestCancel();
+    capCv_.notify_all(); // wake threads parked in waitForPermit
+}
+
+void ScanEngine::setWorkerCap(unsigned n)
+{
+    if (n < 1U) {
+        n = 1U;
+    }
+    if (n > kMaxWorkers) {
+        n = kMaxWorkers;
+    }
+    workerCap_.store(n, std::memory_order_relaxed);
+    capCv_.notify_all();
+}
+
+unsigned ScanEngine::workerCap() const
+{
+    return workerCap_.load(std::memory_order_relaxed);
+}
+
+void ScanEngine::applyThrottleSample(const ThrottleInput& sample)
+{
+    throttlePolicy_.feed(sample);
+    setWorkerCap(throttlePolicy_.throttled() ? 1U : kMaxWorkers);
+}
+
+void ScanEngine::waitForPermit(unsigned index)
+{
+    // Parked threads hold no job: in-flight work always drains, and only
+    // new dispatch waits. Cancel cuts the wait so joins cannot hang.
+    std::unique_lock<std::mutex> lock{capMutex_};
+    capCv_.wait(lock, [this, index] {
+        return index < workerCap_.load(std::memory_order_relaxed)
+               || queue_.isCancelRequested();
+    });
 }
 
 void ScanEngine::setAgeBuckets(std::vector<std::uint64_t> days)
@@ -191,7 +226,7 @@ void ScanEngine::emitAnalytics(const EngineCallbacks& callbacks)
     callbacks.onAnalytics(std::move(snap));
 }
 
-void ScanEngine::workerMain(const EngineCallbacks& callbacks)
+void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
 {
     auto finder = makeFinder();
     std::vector<EngineNode> batch{};
@@ -233,11 +268,27 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                                                           std::memory_order_relaxed)) {
                 emitAnalytics(callbacks);
             }
+            // Throttle transitions ride the same periodic slot: exactly one
+            // worker announces each change for status display.
+            const bool throttledNow = throttlePolicy_.throttled();
+            bool announced = lastThrottleEmitted_.load(std::memory_order_relaxed);
+            if (throttledNow != announced
+                && lastThrottleEmitted_.compare_exchange_strong(announced, throttledNow,
+                                                               std::memory_order_relaxed,
+                                                               std::memory_order_relaxed)
+                && callbacks.onThrottleChanged) {
+                std::lock_guard<std::mutex> lock{emitMutex_};
+                callbacks.onThrottleChanged(throttledNow);
+            }
         }
     };
 
     DirJob job{};
-    while (queue_.pop(job)) {
+    while (true) {
+        waitForPermit(index);
+        if (!queue_.pop(job)) {
+            break; // cancelled: no more work will ever arrive
+        }
         if (!finder->open(job.path, job.token)) {
             errorCount_.fetch_add(1, std::memory_order_relaxed);
             if (callbacks.onError) {
@@ -341,6 +392,9 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     lastAnalyticsMs_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
     analytics_.reset();
+    throttlePolicy_.reset();
+    lastThrottleEmitted_.store(false, std::memory_order_relaxed);
+    setWorkerCap(kMaxWorkers);
     scanId_ = scanId; // read-only for the rest of the run (workers spawn below)
 
     auto startTime = std::chrono::steady_clock::now();
@@ -406,7 +460,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     queue_.push(DirJob{root, rootAcc, 0});
     std::vector<std::thread> pool{};
     for (unsigned i{0}; i < workers; ++i) {
-        pool.emplace_back([this, &callbacks] { workerMain(callbacks); });
+        pool.emplace_back([this, &callbacks, i] { workerMain(callbacks, i); });
     }
     queue_.waitUntilIdle();
     queue_.requestCancel();
@@ -415,6 +469,12 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     }
     emitSweep(callbacks);
     emitAnalytics(callbacks); // exact finals now that workers joined
+    if (callbacks.onThrottleChanged
+        && throttlePolicy_.throttled() != lastThrottleEmitted_.load(std::memory_order_relaxed)) {
+        // A transition with no later flush to announce it (quiet tail).
+        lastThrottleEmitted_.store(throttlePolicy_.throttled(), std::memory_order_relaxed);
+        callbacks.onThrottleChanged(throttlePolicy_.throttled());
+    }
     auto endTime = std::chrono::steady_clock::now();
 
     EngineResult result{};
