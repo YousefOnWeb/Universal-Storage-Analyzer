@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 // Virtualized tree model: QTreeView renders only visible rows while the
 // scanner streams batches in the background. All mutations arrive via
@@ -46,6 +47,16 @@ public:
     quint32 nodeIdForIndex(const QModelIndex& index) const;
     QModelIndex indexForNodeId(quint32 nodeId) const;
     quint64 totalLogicalBytes() const { return totalLogical_; }
+
+    // Treemap/analytics support: structural reads for layout input.
+    struct ChildEntry {
+        quint32 id{0};
+        QString name{};
+        quint64 logicalSize{0};
+        bool isDirectory{false};
+    };
+    std::vector<ChildEntry> childEntries(quint32 nodeId) const;
+    bool isDirectoryNode(quint32 nodeId) const;
 
 public slots:
     void clear();

@@ -220,6 +220,37 @@ private slots:
         QCOMPARE(details.rowCount(), 0);
         QVERIFY(!details.data(details.index(0, 0)).isValid());
     }
+
+    void exposesChildrenForLayout()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 0;
+        f.name = QStringLiteral("f");
+        f.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f});
+
+        QVERIFY(model.isDirectoryNode(1));
+        QVERIFY(!model.isDirectoryNode(2));
+        QVERIFY(model.isDirectoryNode(0)); // root anchor
+        QVERIFY(!model.isDirectoryNode(4242));
+
+        const auto kids = model.childEntries(0);
+        QCOMPARE(kids.size(), static_cast<std::size_t>(2));
+        QCOMPARE(kids[0].id, static_cast<quint32>(1));
+        QCOMPARE(kids[0].name, QStringLiteral("D"));
+        QVERIFY(kids[0].isDirectory);
+        QCOMPARE(kids[1].logicalSize, static_cast<quint64>(100));
+        QVERIFY(model.childEntries(4242).empty());
+        QVERIFY(model.childEntries(2).empty()); // files have no children
+    }
 };
 
 QTEST_MAIN(TestFileSystemModel)

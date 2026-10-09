@@ -2,6 +2,8 @@
 
 #include <QDateTime>
 
+#include <vector>
+
 FileSystemModel::FileSystemModel(QObject* parent)
     : QAbstractItemModel(parent)
 {
@@ -176,6 +178,36 @@ QModelIndex FileSystemModel::indexForNodeId(quint32 nodeId) const
     }
     Node* node = it->second.get();
     return createIndex(node->row, 0, node);
+}
+
+std::vector<FileSystemModel::ChildEntry> FileSystemModel::childEntries(quint32 nodeId) const
+{
+    std::vector<ChildEntry> out{};
+    const Node* node = nullptr;
+    if (nodeId == 0) {
+        node = root_;
+    } else if (const auto it = owned_.find(nodeId); it != owned_.end()) {
+        node = it->second.get();
+    }
+    if (node == nullptr) {
+        return out; // unknown id: no silent substitution
+    }
+    out.reserve(node->children.size());
+    for (const Node* child : node->children) {
+        ChildEntry e{};
+        e.id = child->id;
+        e.name = child->name;
+        e.logicalSize = child->logicalSize;
+        e.isDirectory = child->isDirectory;
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+bool FileSystemModel::isDirectoryNode(quint32 nodeId) const
+{
+    const auto it = owned_.find(nodeId);
+    return it != owned_.end() && it->second->isDirectory;
 }
 
 void FileSystemModel::clear()
