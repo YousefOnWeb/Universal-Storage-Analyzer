@@ -31,10 +31,10 @@ private slots:
     void aggregatesExtensionsCaseInsensitively()
     {
         Analytics a{};
-        a.recordFile("a.LOG", "/a.LOG", 100, 0, true, {});
-        a.recordFile("b.log", "/b.log", 200, 0, true, {});
-        a.recordFile("c.mp4", "/c.mp4", 300, 0, true, {});
-        a.recordFile("noext", "/noext", 50, 0, true, {});
+        a.recordFile(7, "a.LOG", "/a.LOG", 100, 0, true, {});
+        a.recordFile(7, "b.log", "/b.log", 200, 0, true, {});
+        a.recordFile(7, "c.mp4", "/c.mp4", 300, 0, true, {});
+        a.recordFile(7, "noext", "/noext", 50, 0, true, {});
         const auto snap = a.snapshot();
         QCOMPARE(snap.extensions.size(), static_cast<std::size_t>(3));
         // Sorted by bytes desc: .log (300), .mp4 (300)... tie order
@@ -55,12 +55,13 @@ private slots:
     {
         Analytics a{};
         a.setTopN(2);
-        a.recordFile("small", "/small", 10, 0, true, {});
-        a.recordFile("big", "/big", 500, 0, true, {});
-        a.recordFile("mid", "/mid", 100, 0, true, {});
+        a.recordFile(1, "small", "/small", 10, 0, true, {});
+        a.recordFile(2, "big", "/big", 500, 0, true, {});
+        a.recordFile(3, "mid", "/mid", 100, 0, true, {});
         const auto snap = a.snapshot();
         QCOMPARE(snap.top.size(), static_cast<std::size_t>(2));
         QCOMPARE(snap.top[0].bytes, static_cast<std::uint64_t>(500));
+        QCOMPARE(snap.top[0].id, static_cast<std::uint32_t>(2));
         QCOMPARE(snap.top[1].bytes, static_cast<std::uint64_t>(100));
         QCOMPARE(QString::fromStdString(snap.top[0].pathUtf8), QStringLiteral("/big"));
     }
@@ -69,10 +70,10 @@ private slots:
     {
         Analytics a{};
         a.setAgeBuckets({7, 30});
-        a.recordFile("fresh", "/fresh", 10, 0, true, {}); // bucket 0
-        a.recordFile("week", "/week", 20, 10, true, {}); // bucket 1
-        a.recordFile("old", "/old", 40, 99, true, {}); // bucket 2
-        a.recordFile("mystery", "/mystery", 80, 0, false, {}); // skipped
+        a.recordFile(7, "fresh", "/fresh", 10, 0, true, {}); // bucket 0
+        a.recordFile(7, "week", "/week", 20, 10, true, {}); // bucket 1
+        a.recordFile(7, "old", "/old", 40, 99, true, {}); // bucket 2
+        a.recordFile(7, "mystery", "/mystery", 80, 0, false, {}); // skipped
         const auto snap = a.snapshot();
         QCOMPARE(snap.ageBytes.size(), static_cast<std::size_t>(3));
         QCOMPARE(snap.ageBytes[0], static_cast<std::uint64_t>(10));
@@ -81,14 +82,18 @@ private slots:
         QCOMPARE(snap.ageFiles[0], static_cast<std::uint64_t>(1));
         QCOMPARE(snap.ageFiles[1], static_cast<std::uint64_t>(1));
         QCOMPARE(snap.ageFiles[2], static_cast<std::uint64_t>(1));
+        // Edges ride along so panes label buckets without a second channel.
+        QCOMPARE(snap.ageEdges.size(), static_cast<std::size_t>(2));
+        QCOMPARE(snap.ageEdges[0], static_cast<std::uint64_t>(7));
+        QCOMPARE(snap.ageEdges[1], static_cast<std::uint64_t>(30));
     }
 
     void groupsUnknownOwners()
     {
         Analytics a{};
-        a.recordFile("a", "/a", 100, 0, true, "1000");
-        a.recordFile("b", "/b", 200, 0, true, {});
-        a.recordFile("c", "/c", 50, 0, true, "1000");
+        a.recordFile(7, "a", "/a", 100, 0, true, "1000");
+        a.recordFile(7, "b", "/b", 200, 0, true, {});
+        a.recordFile(7, "c", "/c", 50, 0, true, "1000");
         const auto snap = a.snapshot();
         QCOMPARE(snap.owners.size(), static_cast<std::size_t>(2));
         // Sorted desc: "(unknown)" (200) before "1000" (150).
@@ -102,7 +107,7 @@ private slots:
     void resetClearsAll()
     {
         Analytics a{};
-        a.recordFile("a.log", "/a.log", 100, 3, true, "7");
+        a.recordFile(7, "a.log", "/a.log", 100, 3, true, "7");
         a.reset();
         const auto snap = a.snapshot();
         QVERIFY(snap.extensions.empty());

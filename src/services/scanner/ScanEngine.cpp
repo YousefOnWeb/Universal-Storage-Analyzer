@@ -299,7 +299,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                     (ageKnown && runStartUnix_ >= node.lastWriteTs)
                         ? (runStartUnix_ - node.lastWriteTs) / 86400ULL
                         : 0;
-                analytics_.recordFile(node.nameUtf8, utf8Path(entry.fullPath),
+                analytics_.recordFile(node.id, node.nameUtf8, utf8Path(entry.fullPath),
                                       entry.logicalSize, ageDays, ageKnown, entry.ownerId);
 
                 batch.push_back(std::move(node));

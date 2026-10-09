@@ -23,6 +23,7 @@ struct ExtensionStat {
 
 struct TopEntry {
     std::uint64_t bytes{0};
+    std::uint32_t id{0}; // engine node id: panes select it in the tree
     std::string pathUtf8{};
     std::string nameUtf8{};
 };
@@ -36,7 +37,9 @@ struct AnalyticsSnapshot {
     // Extensions and owners sorted by bytes desc; top files desc.
     std::vector<std::pair<std::string, ExtensionStat>> extensions{};
     std::vector<TopEntry> top{};
-    // Parallel to bucketEdges()+1: bucket i covers [edge[i-1], edge[i]).
+    // Parallel to ageEdges.size()+1: bucket i covers [edge[i-1], edge[i]).
+    // Edges ride along so panes label buckets without a second channel.
+    std::vector<std::uint64_t> ageEdges{};
     std::vector<std::uint64_t> ageBytes{};
     std::vector<std::uint64_t> ageFiles{};
     std::vector<std::pair<std::string, OwnerStat>> owners{};
@@ -114,7 +117,7 @@ public:
     // One call per file node, from any worker thread. ageDays is ignored
     // when ageKnown is false (unknown mtimes are skipped, never bucketed
     // by guess). Empty ownerId aggregates into "(unknown)".
-    void recordFile(const std::string& nameUtf8, const std::string& pathUtf8,
+    void recordFile(std::uint32_t id, const std::string& nameUtf8, const std::string& pathUtf8,
                     std::uint64_t bytes, std::uint64_t ageDays, bool ageKnown,
                     const std::string& ownerId)
     {
@@ -141,11 +144,11 @@ public:
             ++ageFiles_[b];
         }
         if (heap_.size() < topN_) {
-            heap_.push_back(TopEntry{bytes, pathUtf8, nameUtf8});
+            heap_.push_back(TopEntry{bytes, id, pathUtf8, nameUtf8});
             std::push_heap(heap_.begin(), heap_.end(), &heavier);
         } else if (!heap_.empty() && bytes > heap_.front().bytes) {
             std::pop_heap(heap_.begin(), heap_.end(), &heavier);
-            heap_.back() = TopEntry{bytes, pathUtf8, nameUtf8};
+            heap_.back() = TopEntry{bytes, id, pathUtf8, nameUtf8};
             std::push_heap(heap_.begin(), heap_.end(), &heavier);
         }
     }
@@ -163,6 +166,7 @@ public:
         out.top = heap_;
         std::sort(out.top.begin(), out.top.end(),
                   [](const TopEntry& a, const TopEntry& b) { return a.bytes > b.bytes; });
+        out.ageEdges = ageEdges_;
         out.ageBytes = ageBytes_;
         out.ageFiles = ageFiles_;
         out.owners.reserve(owners_.size());
