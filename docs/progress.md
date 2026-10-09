@@ -1,5 +1,23 @@
 # Progress
 
+## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
+
+- Engine accumulators in the single scan pass (extensions, top-N heap,
+  age histogram, owner carry; <5% budget, bounded memory), live ≤1 Hz
+  snapshots plus exact finals.
+- Treemap pane (squarified Qt-free layout, retained cache, debounced
+  live refresh), Bars/Pie tabs (custom paint, no QtCharts), four
+  analytics panes with extension filtering and drill-down, owner
+  display names with lazy cache, disk telemetry + hysteresis throttle
+  with status display, options dialog (QSettings, live age
+  re-bucketing, startup rules).
+- Probe chase (elevated): stale `$FILE_NAME` sizes and DOS-alias-first
+  records fixed with live-record proof; downgrade notices moved out of
+  the error channel; mtime-gated volume cache; backend assertions
+  follow the OS gate.
+- 14/14 suites green (unit/integration/ui), lint clean, smoke/headless
+  verified. Next: merge, then spec 003 (3D treemap) or VFS targets.
+
 ## Completed (2026-10-09) — full revision pass over the scan engine
 
 Fourteen atomic commits, each verified (build + full suite green before

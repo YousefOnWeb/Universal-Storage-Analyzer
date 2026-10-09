@@ -18,6 +18,11 @@ All notable user-facing changes are recorded here.
 - Expert shortcuts: Ctrl+O select target, Ctrl+F find, Ctrl+L focus target.
 - Scan target folder persisted across launches.
 - Skip summary suggests next steps (re-run elevated, exclude system folders).
+- Treemap pane, Bars/Pie tabs, and Extensions/Top Files/Users/Age panes
+  with live data, extension filtering, and click drill-down.
+- File owner display names with honest `(unknown)` coverage states.
+- Disk-busy throttling with status indicator; options dialog (age
+  buckets, top-N size, startup target, throttle toggle).
 
 ### Changed
 
