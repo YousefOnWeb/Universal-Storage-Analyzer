@@ -8,7 +8,7 @@ DetailsTableModel::DetailsTableModel(FileSystemModel* source, QObject* parent)
 
 int DetailsTableModel::rowCount(const QModelIndex& parent) const
 {
-    if (parent.isValid() || source_ == nullptr) {
+    if (parent.isValid() || source_ == nullptr || !selected_.isValid()) {
         return 0;
     }
     return source_->rowCount(selected_);
@@ -21,7 +21,7 @@ int DetailsTableModel::columnCount(const QModelIndex& /*parent*/) const
 
 QVariant DetailsTableModel::data(const QModelIndex& index, int role) const
 {
-    if (!index.isValid() || source_ == nullptr) {
+    if (!index.isValid() || source_ == nullptr || !selected_.isValid()) {
         return {};
     }
     const QModelIndex src = source_->index(index.row(), index.column(), selected_);

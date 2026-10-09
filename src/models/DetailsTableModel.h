@@ -1,13 +1,17 @@
 #pragma once
 
 #include <QAbstractTableModel>
-#include <QModelIndex>
+#include <QPersistentModelIndex>
 
 #include "../models/FileSystemModel.h"
 
 // Read-only projection of the selected tree node's children for the
 // right-pane Details tab. Fed by selection changes; sortable via
 // QSortFilterProxyModel in MainWindow.
+//
+// The selection is a QPersistentModelIndex: a scan reset invalidates it
+// instead of leaving a dangling pointer into the old tree, and every
+// accessor guards validity first.
 class DetailsTableModel : public QAbstractTableModel {
     Q_OBJECT
 public:
@@ -24,5 +28,5 @@ public slots:
 
 private:
     FileSystemModel* source_{nullptr};
-    QModelIndex selected_{};
+    QPersistentModelIndex selected_{};
 };

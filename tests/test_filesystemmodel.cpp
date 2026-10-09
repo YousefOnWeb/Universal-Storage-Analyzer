@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include "../src/models/DetailsTableModel.h"
 #include "../src/models/FileSystemModel.h"
 #include "../src/services/ScanTypes.h"
 
@@ -96,6 +97,128 @@ private slots:
                  static_cast<qulonglong>(149));
         QVERIFY(dataSpy.wait(500));
         QCOMPARE(dataSpy.count(), 1);
+    }
+
+    void appliesSummaryArrivingBeforeItsNode()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+
+        // Summaries stream immediately while node batches are chunked, so a
+        // summary may precede its node. Latest wins; applied on insert.
+        BranchMetrics early{};
+        early.nodeId = 7;
+        early.logicalSize = 900;
+        early.allocatedSize = 8192;
+        early.fileCount = 2;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), early);
+
+        FileRecord dir{};
+        dir.id = 7;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir});
+
+        const QModelIndex dIdx = model.indexForNodeId(7);
+        QVERIFY(dIdx.isValid());
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()))
+                     .toULongLong(),
+                 static_cast<qulonglong>(900));
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColFiles, dIdx.parent()))
+                     .toUInt(),
+                 static_cast<quint32>(2));
+    }
+
+    void resetsStateOnNewScan()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t1"), QStringLiteral("C:/a"));
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 0;
+        f.name = QStringLiteral("f");
+        f.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t1"), QVector<FileRecord>{f});
+        QVERIFY(model.rowCount(QModelIndex{}) > 0);
+
+        QSignalSpy resetSpy{&model, &FileSystemModel::modelResetForNewScan};
+        model.onScanStarted(QStringLiteral("t2"), QStringLiteral("D:/b"));
+        QCOMPARE(resetSpy.count(), 1);
+        QCOMPARE(resetSpy.at(0).at(0).toString(), QStringLiteral("D:/b"));
+        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
+        QVERIFY(!model.indexForNodeId(2).isValid()); // old ids are gone
+
+        model.onNodesDiscovered(QStringLiteral("t2"), QVector<FileRecord>{f});
+        QCOMPARE(model.rowCount(QModelIndex{}), 1);
+        model.clear();
+        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
+    }
+
+    void pinsIndexRolesAndHeaders()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 0;
+        f.name = QStringLiteral("f");
+        f.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f});
+
+        // Root and unknown ids have no visible index.
+        QVERIFY(!model.indexForNodeId(0).isValid());
+        QVERIFY(!model.indexForNodeId(4242).isValid());
+
+        QCOMPARE(model.headerData(FileSystemModel::ColName, Qt::Horizontal).toString(),
+                 QStringLiteral("Name"));
+        QCOMPARE(model.headerData(FileSystemModel::ColSize, Qt::Horizontal).toString(),
+                 QStringLiteral("Size"));
+        QVERIFY(!model.headerData(-1, Qt::Horizontal).isValid());
+        QVERIFY(!model.headerData(0, Qt::Vertical).isValid());
+
+        const QModelIndex fIdx = model.indexForNodeId(2);
+        QVERIFY(fIdx.isValid());
+        const QModelIndex filesCell =
+            model.index(fIdx.row(), FileSystemModel::ColFiles, fIdx.parent());
+        // Files carry no counts: DisplayRole stays empty while SortRole
+        // pins a numeric zero so proxies sort instead of guessing.
+        QVERIFY(!model.data(filesCell).isValid());
+        QCOMPARE(model.data(filesCell, FileSystemModel::Roles::SortRole).toUInt(),
+                 static_cast<quint32>(0));
+        QCOMPARE(model.nodeIdForIndex(fIdx), static_cast<quint32>(2));
+        QCOMPARE(model.nodeIdForIndex(QModelIndex{}), static_cast<quint32>(0));
+    }
+
+    void detailsSurvivesSourceReset()
+    {
+        FileSystemModel model{};
+        DetailsTableModel details{&model};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 1;
+        f.name = QStringLiteral("f");
+        f.logicalSize = 50;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f});
+
+        details.setSelectedNode(model.indexForNodeId(1));
+        QCOMPARE(details.rowCount(), 1);
+
+        // A new scan resets the source: the stored selection must invalidate
+        // cleanly (empty details, no dangling reads) instead of following
+        // freed nodes.
+        model.onScanStarted(QStringLiteral("t2"), QStringLiteral("D:/b"));
+        QCOMPARE(details.rowCount(), 0);
+        QVERIFY(!details.data(details.index(0, 0)).isValid());
     }
 };
 

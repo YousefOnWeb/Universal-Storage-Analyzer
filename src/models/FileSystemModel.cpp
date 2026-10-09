@@ -185,8 +185,6 @@ void FileSystemModel::clear()
     pendingSummaries_.clear();
     dirtyIds_.clear();
     coalesceTimer_.stop();
-    dirtyIds_.clear();
-    coalesceTimer_.stop();
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
