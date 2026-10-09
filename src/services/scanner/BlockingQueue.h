@@ -43,7 +43,10 @@ public:
     {
         std::unique_lock<std::mutex> lock{mutex_};
         ++waiting_;
-        pushed_.wait(lock, [this] { return cancelled_ || (!suspended_ && !queue_.empty()); });
+        pushed_.wait(lock, [this] {
+            return cancelled_.load(std::memory_order_relaxed)
+                   || (!suspended_.load(std::memory_order_relaxed) && !queue_.empty());
+        });
         --waiting_;
         if (cancelled_ || queue_.empty()) {
             return false;
@@ -56,7 +59,8 @@ public:
     bool tryPop(T& out)
     {
         std::lock_guard<std::mutex> lock{mutex_};
-        if (cancelled_ || suspended_ || queue_.empty()) {
+        if (cancelled_.load(std::memory_order_relaxed)
+            || suspended_.load(std::memory_order_relaxed) || queue_.empty()) {
             return false;
         }
         out = std::move(queue_.front());
@@ -83,7 +87,9 @@ public:
         // to join them instead of waiting for taskDone() calls that will
         // never come.
         std::unique_lock<std::mutex> lock{mutex_};
-        idle_.wait(lock, [this] { return pending_ == 0 || cancelled_; });
+        idle_.wait(lock, [this] {
+            return pending_ == 0 || cancelled_.load(std::memory_order_relaxed);
+        });
     }
 
     // Restores a fresh queue. Call only when no worker is inside pop() —
@@ -94,24 +100,19 @@ public:
         std::lock_guard<std::mutex> lock{mutex_};
         queue_ = std::queue<T>{};
         pending_ = 0;
-        cancelled_ = false;
+        cancelled_.store(false, std::memory_order_relaxed);
     }
 
     void setSuspended(bool suspended)
     {
-        {
-            std::lock_guard<std::mutex> lock{mutex_};
-            suspended_ = suspended;
-        }
+        suspended_.store(suspended, std::memory_order_relaxed);
+        // Notify under no lock: waiters re-check the atomic predicate.
         pushed_.notify_all();
     }
 
     void requestCancel()
     {
-        {
-            std::lock_guard<std::mutex> lock{mutex_};
-            cancelled_ = true;
-        }
+        cancelled_.store(true, std::memory_order_relaxed);
         pushed_.notify_all();
         idle_.notify_all();
     }
@@ -121,14 +122,14 @@ public:
     void waitIfSuspended()
     {
         std::unique_lock<std::mutex> lock{mutex_};
-        pushed_.wait(lock, [this] { return cancelled_ || !suspended_; });
+        pushed_.wait(lock,
+                     [this] { return cancelled_.load(std::memory_order_relaxed)
+                                      || !suspended_.load(std::memory_order_relaxed); });
     }
 
-    bool isCancelRequested() const
-    {
-        std::lock_guard<std::mutex> lock{mutex_};
-        return cancelled_;
-    }
+    // Lock-free: called on every file, so it must not serialize on the
+    // queue mutex.
+    bool isCancelRequested() const { return cancelled_.load(std::memory_order_relaxed); }
 
     unsigned waitingWorkers() const { return waiting_.load(std::memory_order_relaxed); }
 
@@ -145,8 +146,10 @@ private:
     std::queue<T> queue_{};
     std::size_t pending_{0};
     std::atomic<unsigned> waiting_{0};
-    bool suspended_{false};
-    bool cancelled_{false};
+    // Atomics, not mutex-guarded: isCancelRequested() runs per file and
+    // setSuspended()/requestCancel() must wake workers without locking.
+    std::atomic<bool> suspended_{false};
+    std::atomic<bool> cancelled_{false};
 };
 
 } // namespace usa::scanner
