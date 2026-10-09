@@ -13,6 +13,7 @@ add_executable(usa
     ui/ThemeManager.cpp
     ui/TreemapWidget.cpp
     ui/BarWidget.cpp
+    ui/PieWidget.cpp
     ui/MainWindow.cpp
     resources/app.qrc
 )

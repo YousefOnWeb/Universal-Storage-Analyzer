@@ -17,6 +17,7 @@
 #include "../src/services/ScannerService.h"
 #include "../src/ui/BarWidget.h"
 #include "../src/ui/MainWindow.h"
+#include "../src/ui/PieWidget.h"
 #include "../src/ui/ThemeManager.h"
 #include "../src/ui/TreemapWidget.h"
 
@@ -306,6 +307,74 @@ private slots:
         }
         QCOMPARE(bars->rootId(), static_cast<quint32>(1));
         QCOMPARE(bars->barCount(), 0); // D is empty in this fixture
+    }
+
+    void pieShowsVolumeAndDrivesSelection()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        {
+            const std::string path = tmp.filePath(QStringLiteral("a.bin")).toStdString();
+            std::ofstream f{path, std::ios::binary};
+            f.write(std::string(100, 'x').data(), 100);
+        }
+
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), tmp.path());
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+        BranchMetrics dm{};
+        dm.nodeId = 1;
+        dm.logicalSize = 500;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), dm);
+
+        auto* pie = win.findChild<PieWidget*>();
+        QVERIFY(pie != nullptr);
+        pie->setTargetPath(tmp.path());
+        pie->refreshSoon();
+        QTest::qWait(500);
+        // D + f1 + free space at minimum (Other files on a real volume).
+        QVERIFY(pie->sliceCount() >= 3);
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+
+        // Node slices drive the tree; Free/Other slices select nothing.
+        int dSlice{-1};
+        int freeSlice{-1};
+        for (int i = 0; i < pie->sliceCount(); ++i) {
+            if (pie->sliceNodeId(i) == 1) {
+                dSlice = i;
+            } else if (pie->sliceNodeId(i) == PieWidget::kNoId) {
+                freeSlice = i;
+            }
+        }
+        QVERIFY(dSlice >= 0);
+        QSignalSpy clickedSpy{pie, &PieWidget::pieClicked};
+        pie->selectSlice(dSlice);
+        QCOMPARE(clickedSpy.count(), 1);
+        const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
+        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(1));
+        if (freeSlice >= 0) {
+            pie->selectSlice(freeSlice);
+            QCOMPARE(clickedSpy.count(), 1); // no signal for non-node slices
+        }
     }
 };
 

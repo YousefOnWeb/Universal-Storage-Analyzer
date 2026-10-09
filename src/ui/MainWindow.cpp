@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "BarWidget.h"
+#include "PieWidget.h"
 #include "ThemeManager.h"
 #include "TreemapWidget.h"
 
@@ -90,6 +91,8 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     barScroll->setWidget(bar_);
     barScroll->setWidgetResizable(true);
     tabs_->addTab(barScroll, QStringLiteral("Bars"));
+    pie_ = new PieWidget(model_, tabs_);
+    tabs_->addTab(pie_, QStringLiteral("Pie"));
     // Placeholders for Milestone 2 analytics (kept disabled, not removed,
     // so the tab contract is visible without fake data).
     for (const QString& name :
@@ -158,6 +161,20 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
             }
         }
     });
+    connect(model_, &FileSystemModel::rowsInserted, pie_, &PieWidget::refreshSoon);
+    connect(model_, &FileSystemModel::dataChanged, pie_, &PieWidget::refreshSoon);
+    connect(model_, &FileSystemModel::modelResetForNewScan, this,
+            [this](const QString&) { pie_->setRootId(0); });
+    connect(pie_, &PieWidget::pieClicked, this, [this](quint32 id) { selectTreeNode(id); });
+    connect(pie_, &PieWidget::pieDoubleClicked, this, [this](quint32 id) {
+        selectTreeNode(id);
+        if (model_->isDirectoryNode(id)) {
+            const QModelIndex proxy = treeProxy_->mapFromSource(model_->indexForNodeId(id));
+            if (proxy.isValid()) {
+                tree_->expand(proxy);
+            }
+        }
+    });
     connect(treemap_, &TreemapWidget::tileClicked, this,
             [this](quint32 id) { selectTreeNode(id); });
     connect(treemap_, &TreemapWidget::tileDoubleClicked, this, [this](quint32 id) {
@@ -212,6 +229,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     }
 
     restoreWindowState();
+    pie_->setTargetPath(targetEdit_->text());
     onTreeSelectionChanged();
 }
 
@@ -280,6 +298,7 @@ void MainWindow::onStartStop()
         }
         model_->onScanStarted(QString{}, target);
         activeTaskId_ = scanner_->startScan(target);
+        pie_->setTargetPath(target);
         scanning_ = true;
         skippedPaths_.clear();
         skippedOverflow_ = 0;
@@ -350,6 +369,7 @@ void MainWindow::onTreeSelectionChanged()
     if (model_->isDirectoryNode(id)) {
         treemap_->setRootId(id);
         bar_->setRootId(id);
+        pie_->setRootId(id);
     }
 }
 
