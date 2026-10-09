@@ -235,6 +235,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
             node.physicalSize = entry.physicalSize;
             node.lastWriteTs = entry.lastWriteTs;
             node.isDirectory = entry.isDirectory;
+            node.ownerId = entry.ownerId;
 
             if (entry.isDirectory && !entry.isReparsePoint) {
                 auto childAcc = std::make_unique<DirAcc>();

@@ -732,6 +732,7 @@ bool MftFinder::findNext()
         cur.logicalSize = rec.isDirectory ? 0 : rec.logicalSize;
         cur.physicalSize = rec.isDirectory ? 0 : rec.physicalSize;
         cur.lastWriteTs = rec.lastWriteTs;
+        cur.ownerId = rec.hasOwner ? std::to_string(rec.ownerId) : std::string{};
         cur.backendToken = rec.number;
         current_ = std::move(cur);
         return true;

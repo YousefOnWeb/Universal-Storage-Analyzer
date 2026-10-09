@@ -15,6 +15,8 @@ struct MftRecord {
     std::uint16_t sequence{0};
     std::uint32_t parentNumber{0};
     std::uint16_t parentSequence{0};
+    std::uint32_t ownerId{0}; // $STANDARD_INFORMATION owner, when present
+    bool hasOwner{false};
     bool isDirectory{false};
     bool inUse{false};
     bool isReparsePoint{false};

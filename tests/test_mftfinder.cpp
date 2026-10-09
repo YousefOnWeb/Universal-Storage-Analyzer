@@ -60,27 +60,28 @@ std::vector<unsigned char> makeFileRecord()
     putU16(buf, 510, 0x1234); // sector tails carry the USN
     putU16(buf, 1022, 0x1234);
 
-    // $STANDARD_INFORMATION at 48: 48 content bytes.
+    // $STANDARD_INFORMATION at 48: 56 content bytes (owner id at +48).
     putU32(buf, 48, 0x10);
-    putU32(buf, 52, 72);
+    putU32(buf, 52, 80);
     buf[56] = 0; // resident
     buf[57] = 0; // unnamed
-    putU32(buf, 64, 48); // content length
+    putU32(buf, 64, 56); // content length
     putU16(buf, 68, 24); // content offset
     putU64(buf, 72, kTestFiletime); // creation
     putU64(buf, 80, kTestFiletime); // modification
     putU64(buf, 88, kTestFiletime); // MFT change
     putU64(buf, 96, kTestFiletime); // access
     putU32(buf, 104, 0x20); // archive attribute, not reparse
+    putU32(buf, 120, 1001); // owner id
 
-    // $FILE_NAME at 120: content 74 bytes (66 + 4 wide chars).
-    putU32(buf, 120, 0x30);
-    putU32(buf, 124, 98);
-    buf[128] = 0; // resident
-    buf[129] = 0; // unnamed
-    putU32(buf, 136, 74); // content length
-    putU16(buf, 140, 24); // content offset
-    const std::size_t c = 120 + 24;
+    // $FILE_NAME at 128: content 74 bytes (66 + 4 wide chars).
+    putU32(buf, 128, 0x30);
+    putU32(buf, 132, 98);
+    buf[136] = 0; // resident
+    buf[137] = 0; // unnamed
+    putU32(buf, 144, 74); // content length
+    putU16(buf, 148, 24); // content offset
+    const std::size_t c = 128 + 24;
     putU64(buf, c + 0, static_cast<std::uint64_t>(5) | (static_cast<std::uint64_t>(5) << 48));
     putU64(buf, c + 24, kTestFiletime); // modification time
     putU64(buf, c + 40, 16384); // allocated size (MS-FSCC 2.4: +40)
@@ -93,38 +94,38 @@ std::vector<unsigned char> makeFileRecord()
     buf[c + 70] = 's';
     buf[c + 72] = 't';
 
-    // Resident $DATA at 218 with 12 content bytes.
-    putU32(buf, 218, 0x80);
-    putU32(buf, 222, 36);
-    buf[226] = 0;
-    buf[227] = 0;
-    putU32(buf, 234, 12);
-    putU16(buf, 238, 24);
+    // Resident $DATA at 226 with 12 content bytes.
+    putU32(buf, 226, 0x80);
+    putU32(buf, 230, 36);
+    buf[234] = 0;
+    buf[235] = 0;
+    putU32(buf, 242, 12);
+    putU16(buf, 246, 24);
     for (int i{0}; i < 12; ++i) {
-        buf[218 + 24 + static_cast<std::size_t>(i)] = static_cast<unsigned char>('a' + i);
+        buf[226 + 24 + static_cast<std::size_t>(i)] = static_cast<unsigned char>('a' + i);
     }
-    putU32(buf, 254, 0xFFFFFFFFU); // end marker
+    putU32(buf, 262, 0xFFFFFFFFU); // end marker
     return buf;
 }
 
 } // namespace
 
-// Rewrites the fixture's resident $DATA attribute (at offset 218) as a
+// Rewrites the fixture's resident $DATA attribute (at offset 226) as a
 // non-resident one with runs [3 clusters at LCN 100][2 sparse clusters].
 // Compressed layouts reserve the 8-byte compressed-size field, shifting
 // the run list by 8.
 void patchNonResidentData(std::vector<unsigned char>& buf, bool compressed, std::uint64_t compSize)
 {
-    putU32(buf, 218, 0x80);
-    buf[226] = 1; // non-resident
-    buf[227] = 0; // unnamed
-    putU16(buf, 230, compressed ? 1 : 0); // attribute flags
+    putU32(buf, 226, 0x80);
+    buf[234] = 1; // non-resident
+    buf[235] = 0; // unnamed
+    putU16(buf, 238, compressed ? 1 : 0); // attribute flags
     const std::uint16_t runOff = compressed ? 72 : 64;
-    putU16(buf, 250, runOff);
-    putU64(buf, 258, 12288); // allocated size
-    const std::size_t r = 218 + runOff;
+    putU16(buf, 258, runOff);
+    putU64(buf, 266, 12288); // allocated size
+    const std::size_t r = 226 + runOff;
     if (compressed) {
-        putU64(buf, 282, compSize);
+        putU64(buf, 290, compSize);
     }
     buf[r + 0] = 0x11;
     buf[r + 1] = 3;
@@ -134,8 +135,8 @@ void patchNonResidentData(std::vector<unsigned char>& buf, bool compressed, std:
     buf[r + 5] = 0xFF; // run 2: sparse (LCN -1)
     buf[r + 6] = 0x00; // terminator
     const std::uint32_t len = static_cast<std::uint32_t>(runOff + 7);
-    putU32(buf, 222, len);
-    putU32(buf, 218 + len, 0xFFFFFFFFU); // end marker
+    putU32(buf, 230, len);
+    putU32(buf, 226 + len, 0xFFFFFFFFU); // end marker
 }
 
 class TestMftFinder : public QObject {
@@ -155,6 +156,8 @@ private slots:
         QCOMPARE(rec.parentSequence, static_cast<std::uint16_t>(5));
         QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
         QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(12));
+        QVERIFY(rec.hasOwner);
+        QCOMPARE(rec.ownerId, static_cast<std::uint32_t>(1001));
         QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(0));
         QVERIFY(rec.usesClusterMath);
         QCOMPARE(rec.lastWriteTs,
@@ -180,7 +183,7 @@ private slots:
 
     void decodesNonResidentRunsSkippingSparse()
     {
-        // Rewrites the fixture's resident $DATA (at 218) as non-resident:
+        // Rewrites the fixture's resident $DATA (at 226) as non-resident:
         // 3 clusters at LCN 100, then 2 sparse clusters.
         auto buf = makeFileRecord();
         patchNonResidentData(buf, false, 0);
@@ -224,13 +227,13 @@ private slots:
         // $ATTRIBUTE_LIST and no $DATA: physicalSize must fall back to the
         // $FILE_NAME allocated size (offset +40), not the flags at +56.
         auto buf = makeFileRecord();
-        // Insert a minimal $ATTRIBUTE_LIST before the $FILE_NAME at 120.
-        // Shift the tail up by 8 bytes; the fixture has slack after 254.
-        std::copy_backward(buf.begin() + 120, buf.begin() + 262, buf.begin() + 270);
-        putU32(buf, 120, 0x20); // $ATTRIBUTE_LIST
-        putU32(buf, 124, 8); // header-only length
-        // Erase the resident $DATA (now at 226) back to an end marker.
-        putU32(buf, 226, 0xFFFFFFFFU);
+        // Insert a minimal $ATTRIBUTE_LIST before the $FILE_NAME at 128.
+        // Shift the tail up by 8 bytes; the fixture has slack after 262.
+        std::copy_backward(buf.begin() + 128, buf.begin() + 270, buf.begin() + 278);
+        putU32(buf, 128, 0x20); // $ATTRIBUTE_LIST
+        putU32(buf, 132, 8); // header-only length
+        // Erase the resident $DATA (now at 234) back to an end marker.
+        putU32(buf, 234, 0xFFFFFFFFU);
         usa::scanner::detail::MftRecord rec{};
         QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
         QVERIFY(!rec.usesClusterMath);

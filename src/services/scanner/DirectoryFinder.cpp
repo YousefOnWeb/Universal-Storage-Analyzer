@@ -371,6 +371,7 @@ bool DirectoryFinder::findNext()
             cur.physicalSize =
                 static_cast<std::uint64_t>(blocks) * static_cast<std::uint64_t>(512);
             cur.lastWriteTs = static_cast<std::uint64_t>(sb.st_mtime);
+            cur.ownerId = std::to_string(sb.st_uid); // free with the stat call
         }
         if (cur.isReparsePoint) {
             cur.logicalSize = 0; // link target size is meaningless here

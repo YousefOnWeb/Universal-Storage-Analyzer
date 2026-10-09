@@ -19,6 +19,10 @@ struct DirEntry {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0}; // allocated on disk; best effort per backend
     std::uint64_t lastWriteTs{0}; // Unix seconds, 0 when unknown
+    // Backend-opaque owner identity (POSIX uid string, volume owner id),
+    // empty when the backend cannot provide it for free. Display-name
+    // resolution happens later, off the hot path.
+    std::string ownerId{};
     // Backend-opaque identity of this entry, enabling O(1) re-opening
     // without path resolution (e.g. the volume record number when produced
     // by the direct reader). Zero when the backend offers none.

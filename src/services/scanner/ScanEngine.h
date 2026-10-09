@@ -27,6 +27,8 @@ struct EngineNode {
     std::uint64_t physicalSize{0};
     std::uint64_t lastWriteTs{0};
     bool isDirectory{false};
+    // Backend-opaque owner identity, copied from the entry (see Finder.h).
+    std::string ownerId{};
 };
 
 // Absolute running totals for one directory. Emitted repeatedly while its

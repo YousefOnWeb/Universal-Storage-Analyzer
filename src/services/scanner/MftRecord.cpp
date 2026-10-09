@@ -156,6 +156,11 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                 if ((dosAttrs & kFileAttributeReparsePoint) != 0) {
                     rec.isReparsePoint = true;
                 }
+                // MS-FSCC 2.1.7 $STANDARD_INFORMATION: owner id at +48.
+                if (contentLen >= 52) {
+                    rec.ownerId = readU32(p + cstart + 48);
+                    rec.hasOwner = true;
+                }
             }
         } else if (type == 0x30 && !nonResident && !haveName) { // $FILE_NAME
             const std::uint32_t contentLen = readU32(p + off + 16);
