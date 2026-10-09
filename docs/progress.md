@@ -115,8 +115,11 @@ commit). 9/9 suites green (3 unit + 5 integration + 1 ui), lint clean,
   filename-size lag. Fixed by falling back to unnamed-stream data
   length when the filename size is zero (`$FILE_NAME` stays
   authoritative otherwise); proven on the live record, fixture-tested
-  both branches. Still open: the probe itself fails on some C: temp
-  paths (fallback notice seen in test runs) but succeeds on others —
-  path-resolution vs volume-state cause unknown; the notice now carries
-  the probe's reason to name it next time. Also open: ~7 s C:-volume
-  image load cost per scan (shared cache helps only within a process).
+- Probe dig part 2: fallback with "path component not found" on fresh
+  `test_scanner-*` dirs, always the leaf. Root cause: fresh long-named
+  entries carry the 8.3 DOS alias FIRST, and the parser took it, so
+  lookup compared "TEST_S~1" against the long name. Fixed by preferring
+  non-DOS namespaces (alias kept as last resort); proven live — the
+  same suite now scans via DirectMFT with no fallback. Remaining cost
+  note: each fresh-dir scan reloads the whole volume image (~7 s on
+  this 2M-record volume); steady rescans stay cached.
