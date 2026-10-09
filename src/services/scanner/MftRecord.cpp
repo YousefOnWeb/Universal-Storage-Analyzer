@@ -62,7 +62,10 @@ bool parseDataRuns(const unsigned char* runs, std::size_t maxLen, std::vector<Da
         }
         pos += lenBytes;
         if (lcnBytes == 0) {
-            continue; // no location: contributes nothing
+            // Sparse run: occupies VCNs but no clusters on disk. The
+            // LCN field is absent, so there is nothing more to consume.
+            out.push_back(DataRun{runLen, 0, true});
+            continue;
         }
         std::int64_t delta{0};
         for (unsigned i{0}; i < lcnBytes; ++i) {
@@ -172,7 +175,9 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                 }
                 const std::uint8_t fnNameLen = p[cstart + 64];
                 const std::size_t nameOff = cstart + 66;
-                const std::uint64_t allocSize = readU64(p + cstart + 56);
+                // MS-FSCC 2.4 FILE_NAME: allocated size at +40, real size
+                // at +48, attribute flags at +56.
+                const std::uint64_t allocSize = readU64(p + cstart + 40);
                 
                 if (fallbackAllocSize == 0 || fallbackAllocSize < allocSize) {
                     fallbackAllocSize = allocSize;

@@ -6,6 +6,7 @@
 #include <QStorageInfo>
 #endif
 
+#include <algorithm>
 #include <filesystem>
 
 #include "../src/services/scanner/DirectoryFinder.h"
@@ -82,7 +83,9 @@ std::vector<unsigned char> makeFileRecord()
     const std::size_t c = 120 + 24;
     putU64(buf, c + 0, static_cast<std::uint64_t>(5) | (static_cast<std::uint64_t>(5) << 48));
     putU64(buf, c + 24, kTestFiletime); // modification time
+    putU64(buf, c + 40, 16384); // allocated size (MS-FSCC 2.4: +40)
     putU64(buf, c + 48, 12345); // real size
+    putU32(buf, c + 56, 0x20); // flags: archive, not dir/reparse
     buf[c + 64] = 4; // name length
     buf[c + 65] = 1; // Win32 namespace
     buf[c + 66] = 't';
@@ -198,6 +201,43 @@ private slots:
         QVERIFY(rec.usesClusterMath);
         QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(500));
         QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(0));
+    }
+
+    void decodesSparseRunsWithZeroLcnField()
+    {
+        // NTFS encodes sparseness as a run with a zero-length LCN field:
+        // [3 clusters at LCN 100][2 sparse clusters][terminator].
+        const unsigned char runs[] = {0x11, 0x03, 0x64, 0x01, 0x02, 0x00};
+        std::vector<usa::scanner::detail::DataRun> out{};
+        QVERIFY(usa::scanner::detail::parseDataRuns(runs, sizeof(runs), out));
+        QCOMPARE(out.size(), static_cast<std::size_t>(2));
+        QCOMPARE(out[0].lengthClusters, static_cast<std::uint64_t>(3));
+        QCOMPARE(out[0].startLcn, static_cast<std::int64_t>(100));
+        QVERIFY(!out[0].sparse);
+        QCOMPARE(out[1].lengthClusters, static_cast<std::uint64_t>(2));
+        QVERIFY(out[1].sparse);
+    }
+
+    void usesFileNameAllocSizeForMultiExtentFallback()
+    {
+        // A record whose $DATA lives in an extension record carries an
+        // $ATTRIBUTE_LIST and no $DATA: physicalSize must fall back to the
+        // $FILE_NAME allocated size (offset +40), not the flags at +56.
+        auto buf = makeFileRecord();
+        // Insert a minimal $ATTRIBUTE_LIST before the $FILE_NAME at 120.
+        // Shift the tail up by 8 bytes; the fixture has slack after 254.
+        std::copy_backward(buf.begin() + 120, buf.begin() + 262, buf.begin() + 270);
+        putU32(buf, 120, 0x20); // $ATTRIBUTE_LIST
+        putU32(buf, 124, 8); // header-only length
+        // Erase the resident $DATA (now at 226) back to an end marker.
+        putU32(buf, 226, 0xFFFFFFFFU);
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QVERIFY(!rec.usesClusterMath);
+        QCOMPARE(rec.physicalSize, static_cast<std::uint64_t>(16384));
+        QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
+        QVERIFY(!rec.isDirectory);
+        QVERIFY(!rec.isReparsePoint);
     }
     void reportsAvailabilityConsistently()
     {
