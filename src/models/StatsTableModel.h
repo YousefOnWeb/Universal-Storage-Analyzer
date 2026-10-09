@@ -12,7 +12,8 @@
 // formatted sizes) are built at the Qt boundary, never in the engine.
 struct StatsRow {
     QStringList text{}; // one display string per column
-    QVector<quint64> keys{}; // numeric sort key per column (SortRole)
+    QVector<QVariant> keys{}; // sort key per column (numbers compare
+                              // numerically, text alphabetically)
     quint32 nodeId{0}; // tree selection target, 0 = none
 };
 

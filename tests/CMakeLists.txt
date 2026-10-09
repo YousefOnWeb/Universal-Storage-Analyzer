@@ -37,6 +37,7 @@ add_usa_test(test_pipeline test_pipeline.cpp integration
 add_usa_test(test_ui test_ui.cpp ui
     ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp
     ${CMAKE_SOURCE_DIR}/src/models/DetailsTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/StatsTableModel.cpp
     ${CMAKE_SOURCE_DIR}/src/models/TreeFilterProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/services/IScannerService.cpp
     ${CMAKE_SOURCE_DIR}/src/services/ScannerService.cpp

@@ -44,8 +44,14 @@ QVariant StatsTableModel::data(const QModelIndex& index, int role) const
                    : QVariant{};
     }
     if (role == FileSystemModel::Roles::SortRole) {
-        return (index.column() >= 0 && index.column() < row.keys.size())
-                   ? QVariant(row.keys.at(index.column()))
+        // Numeric keys compare numerically; text columns carry their
+        // display string so they sort alphabetically.
+        if (index.column() >= 0 && index.column() < row.keys.size()
+            && row.keys.at(index.column()).isValid()) {
+            return row.keys.at(index.column());
+        }
+        return (index.column() >= 0 && index.column() < row.text.size())
+                   ? QVariant(row.text.at(index.column()))
                    : QVariant{};
     }
     if (role == Qt::UserRole) {

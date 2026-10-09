@@ -7,6 +7,7 @@
 #include "../services/ScannerService.h"
 #include "BarWidget.h"
 #include "PieWidget.h"
+#include "../models/StatsTableModel.h"
 #include "../models/TreeFilterProxy.h"
 #include "TreemapWidget.h"
 
@@ -40,6 +41,8 @@ private slots:
     void onTreeSelectionChanged();
     void onQuickSearchChanged(const QString& text);
     void onThemeAction();
+    void onAnalyticsUpdated(const QString& taskId, const AnalyticsData& data);
+    void onExtensionPicked();
 
 private:
     void buildMenus();
@@ -48,6 +51,9 @@ private:
     void saveWindowState();
     void selectTreeNode(quint32 nodeId);
     static QString formatBytes(quint64 bytes, const QString& unit);
+    QTableView* makeStatsTab(const QString& title, StatsTableModel*& model,
+                             QSortFilterProxyModel*& proxy);
+    QString shareText(double pct) const;
 
     FileSystemModel* model_{nullptr};
     ScannerService* scanner_{nullptr};
@@ -64,6 +70,18 @@ private:
     TreemapWidget* treemap_{nullptr};
     BarWidget* bar_{nullptr};
     PieWidget* pie_{nullptr};
+    QTableView* extView_{nullptr};
+    QTableView* topView_{nullptr};
+    QTableView* usersView_{nullptr};
+    QTableView* ageView_{nullptr};
+    StatsTableModel* extModel_{nullptr};
+    StatsTableModel* topModel_{nullptr};
+    StatsTableModel* usersModel_{nullptr};
+    StatsTableModel* ageModel_{nullptr};
+    QSortFilterProxyModel* extProxy_{nullptr};
+    QSortFilterProxyModel* topProxy_{nullptr};
+    QSortFilterProxyModel* usersProxy_{nullptr};
+    QSortFilterProxyModel* ageProxy_{nullptr};
     QLineEdit* quickSearch_{nullptr};
     QLineEdit* targetEdit_{nullptr};
     QPushButton* startStopBtn_{nullptr};

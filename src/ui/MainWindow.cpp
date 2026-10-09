@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLocale>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QScrollArea>
@@ -73,6 +74,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     tabs_ = new QTabWidget(rightSplitter_);
     detailsView_ = new QTableView(tabs_);
     detailsView_->setAccessibleName(QStringLiteral("Details table"));
+    detailsView_->setObjectName(QStringLiteral("Details"));
     detailsView_->setSortingEnabled(true);
     detailsView_->setSelectionBehavior(QAbstractItemView::SelectRows);
     detailsModel_ = new DetailsTableModel(model_, this);
@@ -91,17 +93,18 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     tabs_->addTab(barScroll, QStringLiteral("Bars"));
     pie_ = new PieWidget(model_, tabs_);
     tabs_->addTab(pie_, QStringLiteral("Pie"));
-    // Placeholders for Milestone 2 analytics (kept disabled, not removed,
-    // so the tab contract is visible without fake data).
-    for (const QString& name :
-         {QStringLiteral("Extensions"), QStringLiteral("Users"),
-          QStringLiteral("Age of Files"), QStringLiteral("Top Files")}) {
-        auto* ph = new QLabel(QStringLiteral("%1 view arrives in Milestone 2.").arg(name),
-                              tabs_);
-        ph->setAlignment(Qt::AlignCenter);
-        ph->setEnabled(false);
-        tabs_->addTab(ph, name);
-    }
+    extView_ = makeStatsTab(QStringLiteral("Extensions"), extModel_, extProxy_);
+    topView_ = makeStatsTab(QStringLiteral("Top Files"), topModel_, topProxy_);
+    usersView_ = makeStatsTab(QStringLiteral("Users"), usersModel_, usersProxy_);
+    ageView_ = makeStatsTab(QStringLiteral("Age of Files"), ageModel_, ageProxy_);
+    extModel_->setHeaders({QStringLiteral("Extension"), QStringLiteral("Bytes"),
+                           QStringLiteral("Share"), QStringLiteral("Files")});
+    topModel_->setHeaders({QStringLiteral("Name"), QStringLiteral("Size"),
+                           QStringLiteral("Path")});
+    usersModel_->setHeaders({QStringLiteral("Owner"), QStringLiteral("Bytes"),
+                             QStringLiteral("Share"), QStringLiteral("Files")});
+    ageModel_->setHeaders({QStringLiteral("Age"), QStringLiteral("Files"),
+                           QStringLiteral("Bytes")});
 
     splitter_->addWidget(tree_);
     splitter_->addWidget(rightSplitter_);
@@ -185,6 +188,16 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
         }
     });
     connect(scanner_, &ScannerService::scanFinished, this, &MainWindow::onScanFinished);
+    connect(scanner_, &ScannerService::analyticsUpdated, this,
+            &MainWindow::onAnalyticsUpdated);
+    connect(extView_->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this](const QItemSelection&, const QItemSelection&) { onExtensionPicked(); });
+    connect(topView_, &QTableView::clicked, this, [this](const QModelIndex& proxyIdx) {
+        const QModelIndex src = topProxy_->mapToSource(proxyIdx);
+        if (src.isValid()) {
+            selectTreeNode(topModel_->rowNodeId(src.row()));
+        }
+    });
     connect(scanner_, &ScannerService::scanProgress, this,
             [this](const QString&, const QString& p) { statusLabel_->setText(p); });
     connect(scanner_, &ScannerService::errorOccurred, this,
@@ -394,10 +407,106 @@ void MainWindow::onQuickSearchChanged(const QString& text)
     detailsProxy_->setFilterFixedString(text);
 }
 
+void MainWindow::onExtensionPicked()
+{
+    const QModelIndexList selected = extView_->selectionModel()->selectedRows(0);
+    if (selected.isEmpty()) {
+        return;
+    }
+    const QModelIndex src = extProxy_->mapToSource(selected.front());
+    if (!src.isValid()) {
+        return;
+    }
+    const QString ext = extModel_->data(extModel_->index(src.row(), 0)).toString();
+    // Toggle: picking the active extension clears the filter again.
+    treeProxy_->setExtensionFilter(treeProxy_->extensionFilter() == ext ? QString{} : ext);
+}
+
 void MainWindow::onThemeAction()
 {
     if (auto* act = qobject_cast<QAction*>(sender()); act != nullptr && themes_ != nullptr) {
         themes_->setMode(static_cast<ThemeManager::Mode>(act->data().toInt()));
+    }
+}
+
+QTableView* MainWindow::makeStatsTab(const QString& title, StatsTableModel*& model,
+                                     QSortFilterProxyModel*& proxy)
+{
+    model = new StatsTableModel(this);
+    proxy = new QSortFilterProxyModel(this);
+    proxy->setSourceModel(model);
+    proxy->setSortRole(FileSystemModel::Roles::SortRole);
+    auto* view = new QTableView(tabs_);
+    view->setAccessibleName(title);
+    view->setObjectName(title);
+    view->setSortingEnabled(true);
+    view->setSelectionBehavior(QAbstractItemView::SelectRows);
+    view->setSelectionMode(QAbstractItemView::SingleSelection);
+    view->setModel(proxy);
+    view->horizontalHeader()->setStretchLastSection(true);
+    tabs_->addTab(view, title);
+    return view;
+}
+
+QString MainWindow::shareText(double pct) const
+{
+    return QString::number(pct, 'f', 1) + QStringLiteral("%");
+}
+
+void MainWindow::onAnalyticsUpdated(const QString&, const AnalyticsData& data)
+{
+    const QString units = unitsCombo_->currentText();
+    {
+        QVector<StatsRow> rows{};
+        rows.reserve(data.extensions.size());
+        for (const auto& row : data.extensions) {
+            StatsRow r{};
+            r.text = {row.extension, formatBytes(row.bytes, units), shareText(row.sharePct),
+                      QLocale{}.toString(row.files)};
+            r.keys = {row.extension, row.bytes,
+                      static_cast<quint64>(row.sharePct * 10.0),
+                      row.files};
+            rows.push_back(std::move(r));
+        }
+        extModel_->setRows(std::move(rows));
+    }
+    {
+        QVector<StatsRow> rows{};
+        rows.reserve(data.top.size());
+        for (const auto& row : data.top) {
+            StatsRow r{};
+            r.text = {row.name, formatBytes(row.bytes, units), row.path};
+            r.keys = {row.name, row.bytes, row.path};
+            r.nodeId = row.nodeId;
+            rows.push_back(std::move(r));
+        }
+        topModel_->setRows(std::move(rows));
+    }
+    {
+        QVector<StatsRow> rows{};
+        rows.reserve(data.owners.size());
+        for (const auto& row : data.owners) {
+            StatsRow r{};
+            r.text = {row.owner, formatBytes(row.bytes, units), shareText(row.sharePct),
+                      QLocale{}.toString(row.files)};
+            r.keys = {row.owner, row.bytes,
+                      static_cast<quint64>(row.sharePct * 10.0),
+                      row.files};
+            rows.push_back(std::move(r));
+        }
+        usersModel_->setRows(std::move(rows));
+    }
+    {
+        QVector<StatsRow> rows{};
+        rows.reserve(data.age.size());
+        for (const auto& row : data.age) {
+            StatsRow r{};
+            r.text = {row.label, QLocale{}.toString(row.files),
+                      formatBytes(row.bytes, units)};
+            r.keys = {row.label, row.files, row.bytes};
+            rows.push_back(std::move(r));
+        }
+        ageModel_->setRows(std::move(rows));
     }
 }
 

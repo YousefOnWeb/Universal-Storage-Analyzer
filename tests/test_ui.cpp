@@ -125,7 +125,7 @@ private slots:
         auto* detailsModel = win.findChild<DetailsTableModel*>();
         QVERIFY(detailsModel != nullptr);
         QCOMPARE(detailsModel->rowCount(), 1); // D's child f2
-        auto* details = win.findChild<QTableView*>();
+        auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
         QVERIFY(details != nullptr);
         QCOMPARE(details->model()->rowCount(), 1); // f2 under D, via proxy
         QCOMPARE(details->model()->rowCount(), 1); // f2 under D
@@ -375,6 +375,122 @@ private slots:
             pie->selectSlice(freeSlice);
             QCOMPARE(clickedSpy.count(), 1); // no signal for non-node slices
         }
+    }
+
+    void analyticsPanesPopulateFilterAndSelect()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1.txt");
+        f1.logicalSize = 100;
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 1;
+        f2.name = QStringLiteral("f2.log");
+        f2.logicalSize = 500;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1, f2});
+
+        // Drive the panes exactly as the worker bridge would.
+        AnalyticsData data{};
+        data.totalBytes = 600;
+        data.totalFiles = 2;
+        AnalyticsExtension logRow{};
+        logRow.extension = QStringLiteral(".log");
+        logRow.bytes = 500;
+        logRow.files = 1;
+        logRow.sharePct = 83.3;
+        AnalyticsExtension txtRow{};
+        txtRow.extension = QStringLiteral(".txt");
+        txtRow.bytes = 100;
+        txtRow.files = 1;
+        txtRow.sharePct = 16.7;
+        data.extensions = {logRow, txtRow};
+        AnalyticsTopFile topRow{};
+        topRow.nodeId = 3;
+        topRow.path = QStringLiteral("C:/data/D/f2.log");
+        topRow.name = QStringLiteral("f2.log");
+        topRow.bytes = 500;
+        data.top = {topRow};
+        AnalyticsOwner ownerRow{};
+        ownerRow.owner = QStringLiteral("tester");
+        ownerRow.bytes = 600;
+        ownerRow.files = 2;
+        ownerRow.sharePct = 100.0;
+        data.owners = {ownerRow};
+        AnalyticsAgeBucket ageRow{};
+        ageRow.label = QStringLiteral("< 1 day");
+        ageRow.files = 2;
+        ageRow.bytes = 600;
+        data.age = {ageRow};
+        scanner.analyticsUpdated(QStringLiteral("t"), data);
+
+        auto* extView = win.findChild<QTableView*>(QStringLiteral("Extensions"));
+        QVERIFY(extView != nullptr);
+        QCOMPARE(extView->model()->rowCount(), 2);
+        auto* topView = win.findChild<QTableView*>(QStringLiteral("Top Files"));
+        QVERIFY(topView != nullptr);
+        QCOMPARE(topView->model()->rowCount(), 1);
+        auto* usersView = win.findChild<QTableView*>(QStringLiteral("Users"));
+        QVERIFY(usersView != nullptr);
+        QCOMPARE(usersView->model()->rowCount(), 1);
+        auto* ageView = win.findChild<QTableView*>(QStringLiteral("Age of Files"));
+        QVERIFY(ageView != nullptr);
+        QCOMPARE(ageView->model()->rowCount(), 1);
+
+        // Extension pick filters the tree (dirs stay as containers).
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        const auto proxyRowByName = [&](const QString& name) {
+            for (int r = 0; r < tree->model()->rowCount(); ++r) {
+                const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+                if (tree->model()->data(idx).toString() == name) {
+                    return idx;
+                }
+            }
+            return QModelIndex{};
+        };
+        const auto extRowByName = [&](const QString& name) {
+            for (int r = 0; r < extView->model()->rowCount(); ++r) {
+                const QModelIndex idx = extView->model()->index(r, 0);
+                if (extView->model()->data(idx).toString() == name) {
+                    return idx;
+                }
+            }
+            return QModelIndex{};
+        };
+        extView->selectionModel()->select(
+            extRowByName(QStringLiteral(".log")),
+            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        QCOMPARE(tree->model()->rowCount(), 1); // D only; f1.txt hidden
+        const QModelIndex dIdx = proxyRowByName(QStringLiteral("D"));
+        QVERIFY(dIdx.isValid());
+        QCOMPARE(tree->model()->rowCount(dIdx), 1); // f2.log
+        // Picking the active extension again clears the filter.
+        extView->selectionModel()->clearSelection();
+        extView->selectionModel()->select(
+            extRowByName(QStringLiteral(".log")),
+            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        QCOMPARE(tree->model()->rowCount(), 2); // D + f1.txt again
+
+        // Top click selects the node in the tree through real wiring.
+        topView->clicked(topView->model()->index(0, 0));
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
+        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(3));
     }
 };
 
