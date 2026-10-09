@@ -18,6 +18,7 @@ add_executable(usa
     ui/TreemapWidget.cpp
     ui/BarWidget.cpp
     ui/PieWidget.cpp
+    ui/OptionsDialog.cpp
     ui/MainWindow.cpp
     resources/app.qrc
 )

@@ -57,6 +57,7 @@ public:
     };
     std::vector<ChildEntry> childEntries(quint32 nodeId) const;
     bool isDirectoryNode(quint32 nodeId) const;
+    std::uint64_t lastModifiedTs(quint32 nodeId) const;
 
 public slots:
     void clear();

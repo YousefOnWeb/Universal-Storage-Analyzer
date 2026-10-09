@@ -210,6 +210,12 @@ bool FileSystemModel::isDirectoryNode(quint32 nodeId) const
     return it != owned_.end() && it->second->isDirectory;
 }
 
+std::uint64_t FileSystemModel::lastModifiedTs(quint32 nodeId) const
+{
+    const auto it = owned_.find(nodeId);
+    return it != owned_.end() ? it->second->lastModifiedTs : 0;
+}
+
 void FileSystemModel::clear()
 {
     beginResetModel();

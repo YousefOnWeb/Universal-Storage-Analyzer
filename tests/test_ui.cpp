@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QDateTime>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -17,6 +18,7 @@
 #include "../src/services/ScannerService.h"
 #include "../src/ui/BarWidget.h"
 #include "../src/ui/MainWindow.h"
+#include "../src/ui/OptionsDialog.h"
 #include "../src/ui/PieWidget.h"
 #include "../src/ui/ThemeManager.h"
 #include "../src/ui/TreemapWidget.h"
@@ -375,6 +377,96 @@ private slots:
             pie->selectSlice(freeSlice);
             QCOMPARE(clickedSpy.count(), 1); // no signal for non-node slices
         }
+    }
+
+    void optionsDialogValidatesAndPersists()
+    {
+        // Sandbox the settings backend: this must not touch real prefs.
+        // Runs after the other tests in this binary use defaults only.
+        QTemporaryDir settingsDir{};
+        QVERIFY(settingsDir.isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           settingsDir.path());
+
+        QVERIFY(!OptionsDialog::validateBuckets(QStringLiteral("7,7,0"), nullptr));
+        QVERIFY(!OptionsDialog::validateBuckets(QStringLiteral("abc"), nullptr));
+        QVERIFY(!OptionsDialog::validateBuckets(QStringLiteral(""), nullptr));
+        QVERIFY(!OptionsDialog::validateBuckets(
+            QStringLiteral("1,2,3,4,5,6,7,8,9,10,11,12,13"), nullptr));
+        QVERIFY(OptionsDialog::validateBuckets(QStringLiteral("7,30,365"), nullptr));
+
+        OptionsDialog dlg{};
+        dlg.setBucketsCsv(QStringLiteral("7,7,0"));
+        dlg.accept();
+        QCOMPARE(dlg.result(), 0); // invalid: stays open, nothing saved
+        QVERIFY(OptionsDialog::loadBucketsCsv() != QStringLiteral("7,7,0"));
+
+        dlg.setBucketsCsv(QStringLiteral("7,30,365"));
+        dlg.accept();
+        QCOMPARE(dlg.result(), static_cast<int>(QDialog::Accepted));
+        QCOMPARE(OptionsDialog::loadBucketsCsv(), QStringLiteral("7,30,365"));
+        QCOMPARE(OptionsDialog::loadTopN(), OptionsDialog::kDefaultTopN);
+        QCOMPARE(OptionsDialog::loadStartup(), QStringLiteral("last"));
+        QVERIFY(OptionsDialog::loadThrottle());
+    }
+
+    void agePaneRebucketsFromMemory()
+    {
+        QTemporaryDir settingsDir{};
+        QVERIFY(settingsDir.isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           settingsDir.path());
+        OptionsDialog buckets{};
+        buckets.setBucketsCsv(QStringLiteral("7,30"));
+        buckets.accept();
+        QCOMPARE(buckets.result(), static_cast<int>(QDialog::Accepted));
+
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        const std::uint64_t now =
+            static_cast<std::uint64_t>(QDateTime::currentSecsSinceEpoch());
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("recent.log");
+        f1.logicalSize = 100;
+        f1.lastModifiedTs = now - 2 * 86400ULL;
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 0;
+        f2.name = QStringLiteral("old.log");
+        f2.logicalSize = 200;
+        f2.lastModifiedTs = now - 40 * 86400ULL;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f1, f2});
+
+        // No engine involved: re-bucketing walks in-memory mtimes, no I/O.
+        // Two edges make three buckets: [< 7 days], [7 – 30 days], [≥ 30 days].
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(300));
+        win.refreshAgePane();
+        auto* ageView = win.findChild<QTableView*>(QStringLiteral("Age of Files"));
+        QVERIFY(ageView != nullptr);
+        QCOMPARE(ageView->model()->rowCount(), 3);
+        QCOMPARE(ageView->model()->data(ageView->model()->index(0, 0)).toString(),
+                 QStringLiteral("< 7 days"));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(0, 1)).toUInt(),
+                 static_cast<quint32>(1));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(1, 0)).toString(),
+                 QStringLiteral("7 days – 30 days"));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(1, 1)).toUInt(),
+                 static_cast<quint32>(0));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(2, 0)).toString(),
+                 QStringLiteral("≥ 30 days"));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(2, 1)).toUInt(),
+                 static_cast<quint32>(1));
+        QCOMPARE(ageView->model()->data(ageView->model()->index(2, 2)).toString(),
+                 QStringLiteral("200.00 B"));
     }
 
     void analyticsPanesPopulateFilterAndSelect()

@@ -15,6 +15,7 @@
 #include "../services/DatabaseManager.h"
 #include "../services/ScannerService.h"
 #include "../services/ScanTypes.h"
+#include "../ui/OptionsDialog.h"
 #include "../ui/MainWindow.h"
 #include "../ui/ThemeManager.h"
 
@@ -191,6 +192,9 @@ int runCliScan(QApplication& app, const QCommandLineParser& parser)
 {
     app.setQuitOnLastWindowClosed(false);
     ScannerService scanner{};
+    // Saved options apply to headless scans exactly like GUI ones.
+    scanner.applyOptions(OptionsDialog::loadBucketsCsv(), OptionsDialog::loadTopN(),
+                         OptionsDialog::loadThrottle());
     const QString target = parser.value(QStringLiteral("cli-scan"));
     const bool enableLog = !parser.isSet(QStringLiteral("no-log"));
 

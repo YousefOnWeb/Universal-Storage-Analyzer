@@ -56,6 +56,7 @@ add_usa_test(test_ui test_ui.cpp ui
     ${CMAKE_SOURCE_DIR}/src/ui/TreemapWidget.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/BarWidget.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/PieWidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/OptionsDialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/MainWindow.cpp)
 # Widget tests run headless on every OS (no display server needed).
 set_tests_properties(test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

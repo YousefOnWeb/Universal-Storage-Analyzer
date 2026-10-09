@@ -41,8 +41,14 @@ private slots:
     void onTreeSelectionChanged();
     void onQuickSearchChanged(const QString& text);
     void onThemeAction();
+    void onOptions();
     void onAnalyticsUpdated(const QString& taskId, const AnalyticsData& data);
     void onExtensionPicked();
+
+public slots:
+    // Re-buckets the Age pane from in-memory mtimes (no I/O). Runs after
+    // the options dialog changes buckets and on demand otherwise.
+    void refreshAgePane();
 
 private:
     void buildMenus();
@@ -50,6 +56,8 @@ private:
     void restoreWindowState();
     void saveWindowState();
     void selectTreeNode(quint32 nodeId);
+    void applyOptionsToEngine();
+    void applyStartupTarget();
     static QString formatBytes(quint64 bytes, const QString& unit);
     QTableView* makeStatsTab(const QString& title, StatsTableModel*& model,
                              QSortFilterProxyModel*& proxy);

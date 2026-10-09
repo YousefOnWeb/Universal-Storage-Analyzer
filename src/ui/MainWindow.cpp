@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "BarWidget.h"
+#include "OptionsDialog.h"
 #include "PieWidget.h"
 #include "ThemeManager.h"
 #include "TreemapWidget.h"
@@ -8,6 +9,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDateTime>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,6 +22,8 @@
 #include <QStorageInfo>
 #include <QToolBar>
 #include <QVBoxLayout>
+
+#include <functional>
 
 MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeManager* themes,
                        QWidget* parent)
@@ -253,7 +257,9 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     }
 
     restoreWindowState();
+    applyStartupTarget();
     pie_->setTargetPath(targetEdit_->text());
+    applyOptionsToEngine(); // push saved options before the first scan
     onTreeSelectionChanged();
 }
 
@@ -289,6 +295,10 @@ void MainWindow::buildMenus()
     auto* findAct = view->addAction(QStringLiteral("&Find…"));
     findAct->setShortcut(QKeySequence::Find); // Ctrl+F
     connect(findAct, &QAction::triggered, this, [this] { quickSearch_->setFocus(); });
+
+    auto* tools = menuBar()->addMenu(QStringLiteral("&Tools"));
+    auto* optionsAct = tools->addAction(QStringLiteral("&Options…"), this, &MainWindow::onOptions);
+    optionsAct->setShortcut(QKeySequence(QStringLiteral("Ctrl+,")));
 }
 
 void MainWindow::buildToolbar()
@@ -299,8 +309,8 @@ void MainWindow::buildToolbar()
     exportAct->setEnabled(false); // Milestone 4
     exportAct->setToolTip(QStringLiteral("Multi-format export arrives in Milestone 4"));
     auto* optionsAct = tb->addAction(QStringLiteral("Options"));
-    optionsAct->setEnabled(false);
-    optionsAct->setToolTip(QStringLiteral("Age intervals & export options arrive in Milestone 2/4"));
+    optionsAct->setToolTip(QStringLiteral("Scan and display options"));
+    connect(optionsAct, &QAction::triggered, this, &MainWindow::onOptions);
 }
 
 void MainWindow::onBrowseTarget()
@@ -436,6 +446,74 @@ void MainWindow::onThemeAction()
     if (auto* act = qobject_cast<QAction*>(sender()); act != nullptr && themes_ != nullptr) {
         themes_->setMode(static_cast<ThemeManager::Mode>(act->data().toInt()));
     }
+}
+
+void MainWindow::onOptions()
+{
+    OptionsDialog dlg{this};
+    if (dlg.exec() == QDialog::Accepted) {
+        applyOptionsToEngine();
+        refreshAgePane();
+    }
+}
+
+void MainWindow::applyStartupTarget()
+{
+    const QString mode = OptionsDialog::loadStartup();
+    if (mode == QStringLiteral("home")) {
+        targetEdit_->setText(QDir::homePath());
+    } else if (mode == QStringLiteral("ask")) {
+        targetEdit_->clear();
+    }
+    // "last" keeps the restored target untouched.
+}
+
+void MainWindow::applyOptionsToEngine()
+{
+    scanner_->applyOptions(OptionsDialog::loadBucketsCsv(), OptionsDialog::loadTopN(),
+                           OptionsDialog::loadThrottle());
+}
+
+void MainWindow::refreshAgePane()
+{
+    // Re-bucket from in-memory mtimes: no I/O, instant on any scan.
+    const std::vector<std::uint64_t> edges = OptionsDialog::loadEdges();
+    std::vector<std::uint64_t> files(edges.size() + 1, 0);
+    std::vector<std::uint64_t> bytes(edges.size() + 1, 0);
+    const std::uint64_t now =
+        static_cast<std::uint64_t>(QDateTime::currentSecsSinceEpoch());
+    std::function<void(quint32)> walk = [&](quint32 id) {
+        for (const auto& child : model_->childEntries(id)) {
+            if (child.isDirectory) {
+                walk(child.id);
+                continue;
+            }
+            const std::uint64_t mtime = model_->lastModifiedTs(child.id);
+            if (mtime == 0 || mtime > now) {
+                continue; // unknown or clock-skewed: never bucket by guess
+            }
+            const std::uint64_t ageDays = (now - mtime) / 86400ULL;
+            std::size_t bucket{edges.size()};
+            for (std::size_t i{0}; i < edges.size(); ++i) {
+                if (ageDays < edges[i]) {
+                    bucket = i;
+                    break;
+                }
+            }
+            ++files[bucket];
+            bytes[bucket] += child.logicalSize;
+        }
+    };
+    walk(0);
+    QVector<StatsRow> rows{};
+    for (std::size_t i{0}; i < files.size(); ++i) {
+        StatsRow r{};
+        r.text = {ageBucketLabel(i, edges), QLocale{}.toString(files[i]),
+                  formatBytes(bytes[i], unitsCombo_->currentText())};
+        r.keys = {ageBucketLabel(i, edges), files[i], bytes[i]};
+        rows.push_back(std::move(r));
+    }
+    ageModel_->setRows(std::move(rows));
 }
 
 QTableView* MainWindow::makeStatsTab(const QString& title, StatsTableModel*& model,
