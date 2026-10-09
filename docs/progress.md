@@ -109,3 +109,14 @@ commit). 9/9 suites green (3 unit + 5 integration + 1 ui), lint clean,
 - Harden: pause/resume button, error rows for denied paths, export stubs live.
 - Follow-ups: elevated DirectMFT proof scan; clang-format adoption;
   `loadVolume` decomposition; signing/attestations.
+- Probe dig (2026-10-09): elevated scans reported 0 bytes for a fresh
+  48-byte file while native read 48. Record dump proved `$FILE_NAME`
+  real size stale (0) with resident `$DATA` current (48) — NTFS
+  filename-size lag. Fixed by falling back to unnamed-stream data
+  length when the filename size is zero (`$FILE_NAME` stays
+  authoritative otherwise); proven on the live record, fixture-tested
+  both branches. Still open: the probe itself fails on some C: temp
+  paths (fallback notice seen in test runs) but succeeds on others —
+  path-resolution vs volume-state cause unknown; the notice now carries
+  the probe's reason to name it next time. Also open: ~7 s C:-volume
+  image load cost per scan (shared cache helps only within a process).
