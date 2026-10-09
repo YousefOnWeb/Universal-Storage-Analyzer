@@ -128,6 +128,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
     }
 
     bool haveName{false};
+    bool haveDosName{false};
     bool hasAttributeList{false};
     bool hasAnyData{false};
     std::uint64_t fallbackAllocSize{0};
@@ -162,7 +163,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     rec.hasOwner = true;
                 }
             }
-        } else if (type == 0x30 && !nonResident && !haveName) { // $FILE_NAME
+        } else if (type == 0x30 && !nonResident) { // $FILE_NAME
             const std::uint32_t contentLen = readU32(p + off + 16);
             const std::uint16_t contentOff = readU16(p + off + 20);
             const std::size_t cstart = off + contentOff;
@@ -179,6 +180,12 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     rec.lastWriteTs = filetimeToUnix(readU64(p + cstart + 24));
                 }
                 const std::uint8_t fnNameLen = p[cstart + 64];
+                // MS-FSCC namespace byte at +65: 0 POSIX, 1 Win32, 2 DOS
+                // (8.3 alias), 3 Win32&DOS. A record routinely carries the
+                // DOS alias FIRST: it must never win over the real name,
+                // or path resolution compares "TEST_S~1" against the long
+                // name and the entry vanishes from its parent.
+                const bool dosAlias = p[cstart + 65] == 2;
                 const std::size_t nameOff = cstart + 66;
                 // MS-FSCC 2.4 FILE_NAME: allocated size at +40, real size
                 // at +48, attribute flags at +56.
@@ -189,7 +196,8 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                 }
 
                 if (fnNameLen > 0
-                    && nameOff + static_cast<std::size_t>(fnNameLen) * 2 <= recordSize) {
+                    && nameOff + static_cast<std::size_t>(fnNameLen) * 2 <= recordSize
+                    && (!haveName || (haveDosName && !dosAlias))) {
                     rec.parentNumber = parentNum;
                     rec.parentSequence = parentSeq;
                     rec.logicalSize = realSize;
@@ -201,7 +209,11 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     if ((fnFlags & kFileAttributeDirectory) != 0) {
                         rec.isDirectory = true;
                     }
-                    haveName = true;
+                    if (dosAlias) {
+                        haveDosName = true; // last resort if no real name follows
+                    } else {
+                        haveName = true;
+                    }
                 }
             }
         } else if (type == 0x80) { // $DATA (both unnamed and named, like WofCompressedData)
@@ -268,7 +280,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
         rec.logicalSize = rec.unnamedDataRealSize;
     }
 
-    return haveName;
+    return haveName || haveDosName;
 }
 
 } // namespace usa::scanner::detail

@@ -229,6 +229,43 @@ private slots:
         QCOMPARE(rec2.logicalSize, static_cast<std::uint64_t>(5000)); // $DATA real size
     }
 
+    void prefersWin32NameOverDosAlias()
+    {
+        // Fresh long-named entries routinely carry the 8.3 DOS alias
+        // FIRST. The parser must resolve the Win32 name, or path lookup
+        // compares "TEST_S~1" against the long name and the entry
+        // vanishes from its parent ("path component not found", live).
+        auto buf = makeFileRecord();
+        // Shift the tail up by 112 bytes to insert a DOS $FILE_NAME at 128.
+        std::copy_backward(buf.begin() + 128, buf.begin() + 270, buf.begin() + 382);
+        putU32(buf, 128, 0x30);
+        putU32(buf, 132, 112); // 24 header + 82 content, 8-aligned
+        buf[136] = 0; // resident
+        buf[137] = 0; // unnamed
+        putU32(buf, 144, 82); // content length
+        putU16(buf, 148, 24); // content offset
+        const std::size_t c = 128 + 24;
+        putU64(buf, c + 0, static_cast<std::uint64_t>(5) | (static_cast<std::uint64_t>(5) << 48));
+        putU64(buf, c + 40, 16384); // allocated size
+        putU64(buf, c + 48, 12345); // real size
+        putU32(buf, c + 56, 0x20); // flags
+        const wchar_t shortName[] = L"TEST_S~1";
+        buf[c + 64] = 8; // name length
+        buf[c + 65] = 2; // DOS namespace
+        for (int i{0}; i < 8; ++i) {
+            const std::size_t o = c + 66 + static_cast<std::size_t>(i) * 2;
+            buf[o] = static_cast<unsigned char>(shortName[i]);
+            buf[o + 1] = 0;
+        }
+
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QVERIFY(rec.name == L"test"); // Win32 name wins over the alias
+        QCOMPARE(rec.parentNumber, static_cast<std::uint32_t>(5));
+        QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12345));
+        QVERIFY(!rec.isDirectory);
+    }
+
     void decodesSparseRunsWithZeroLcnField()
     {
         // NTFS encodes sparseness as a run with a zero-length LCN field:
