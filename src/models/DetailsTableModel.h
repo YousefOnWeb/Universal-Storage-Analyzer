@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QAbstractTableModel>
-#include <QPersistentModelIndex>
+#include <QModelIndex>
 
 #include "../models/FileSystemModel.h"
 
@@ -9,9 +9,12 @@
 // right-pane Details tab. Fed by selection changes; sortable via
 // QSortFilterProxyModel in MainWindow.
 //
-// The selection is a QPersistentModelIndex: a scan reset invalidates it
-// instead of leaving a dangling pointer into the old tree, and every
-// accessor guards validity first.
+// The selection is a plain index into the source model: it stays valid
+// across this model's own resets (the source tree is untouched by those),
+// and it is cleared synchronously whenever the SOURCE model resets —
+// otherwise it would dangle into freed nodes. A persistent index cannot
+// work here: one stored mid-reset dies at endResetModel, while one stored
+// after leaves proxies with a stale mapping and no refresh signal.
 class DetailsTableModel : public QAbstractTableModel {
     Q_OBJECT
 public:
@@ -28,5 +31,5 @@ public slots:
 
 private:
     FileSystemModel* source_{nullptr};
-    QPersistentModelIndex selected_{};
+    QModelIndex selected_{};
 };

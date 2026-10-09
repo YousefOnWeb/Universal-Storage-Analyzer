@@ -4,11 +4,18 @@ DetailsTableModel::DetailsTableModel(FileSystemModel* source, QObject* parent)
     : QAbstractTableModel(parent)
     , source_(source)
 {
+    // The stored selection points into the source tree. A source reset
+    // frees those nodes, so drop the selection synchronously when the
+    // source resets instead of dangling into freed memory.
+    if (source_ != nullptr) {
+        connect(source_, &QAbstractItemModel::modelReset, this,
+                [this] { setSelectedNode(QModelIndex{}); });
+    }
 }
 
 int DetailsTableModel::rowCount(const QModelIndex& parent) const
 {
-    if (parent.isValid() || source_ == nullptr || !selected_.isValid()) {
+    if (parent.isValid() || source_ == nullptr) {
         return 0;
     }
     return source_->rowCount(selected_);
@@ -21,7 +28,7 @@ int DetailsTableModel::columnCount(const QModelIndex& /*parent*/) const
 
 QVariant DetailsTableModel::data(const QModelIndex& index, int role) const
 {
-    if (!index.isValid() || source_ == nullptr || !selected_.isValid()) {
+    if (!index.isValid() || source_ == nullptr) {
         return {};
     }
     const QModelIndex src = source_->index(index.row(), index.column(), selected_);
