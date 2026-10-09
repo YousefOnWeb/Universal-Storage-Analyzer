@@ -209,19 +209,26 @@ int runCliScan(QApplication& app, const QCommandLineParser& parser)
                      });
 
     QObject::connect(&scanner, &ScannerService::scanFinished, &app,
-                     [&app](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
+                     [&app, &out](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
+                         out << "Scan finished. Files: " << files << " Dirs: " << dirs
+                             << " Bytes: " << bytes << "\n";
+                         out.flush();
                          qInfo() << "CLI Scan finished. Files:" << files << "Dirs:" << dirs
                                  << "Bytes:" << bytes;
                          app.quit();
                      });
 
     QObject::connect(&scanner, &ScannerService::errorOccurred, &app,
-                     [](const QString&, const QString& err, bool fatal) {
+                     [&out](const QString&, const QString& err, bool fatal) {
+                         out << (fatal ? "Fatal error: " : "Error: ") << err << "\n";
+                         out.flush();
                          qCritical() << (fatal ? "CLI Fatal Error:" : "CLI Error:") << err;
                      });
 
     QObject::connect(&scanner, &ScannerService::noticeOccurred, &app,
-                     [](const QString&, const QString& msg) {
+                     [&out](const QString&, const QString& msg) {
+                         out << "Notice: " << msg << "\n";
+                         out.flush();
                          qInfo() << "CLI Notice:" << msg;
                      });
 
