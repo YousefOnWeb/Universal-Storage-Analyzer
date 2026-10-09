@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "scanner/ScanEngine.h"
+#include "DiskTelemetry.h"
 #include "OwnerResolver.h"
 #include "ScanTypes.h"
 
@@ -36,6 +37,9 @@ public slots:
     void startScanPath(const QString& taskId, const QString& targetPath, bool enableLogging = true);
     void requestPause(bool paused);
     void requestCancel();
+    // Throttle samples apply straight into the engine (atomics plus the
+    // permit condition only): DirectConnection-safe like pause/cancel.
+    void applyThrottleSample(const usa::DiskSample& sample);
 
 signals:
     void scanStarted(const QString& taskId, const QString& targetPath);
@@ -49,6 +53,7 @@ signals:
     // collected as skipped items.
     void noticeOccurred(const QString& taskId, const QString& message);
     void analyticsUpdated(const QString& taskId, const AnalyticsData& data);
+    void throttleChanged(const QString& taskId, bool throttled);
 
 private:
     usa::scanner::ScanEngine engine_;

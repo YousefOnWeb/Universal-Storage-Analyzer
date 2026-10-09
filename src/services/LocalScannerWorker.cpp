@@ -48,6 +48,16 @@ void LocalScannerWorker::requestCancel()
     engine_.requestCancel();
 }
 
+void LocalScannerWorker::applyThrottleSample(const usa::DiskSample& sample)
+{
+    usa::scanner::ThrottleInput in{};
+    in.available = sample.available;
+    in.latencyMs = sample.latencyMs;
+    in.queueDepth = sample.queueDepth;
+    in.activePct = sample.activePct;
+    engine_.applyThrottleSample(in);
+}
+
 void LocalScannerWorker::startScanPath(const QString& taskId, const QString& targetPath, bool enableLogging)
 {
     // The engine is single-flight: a second run would share its queue and
@@ -115,6 +125,9 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     };
     callbacks.onTelemetry = [&](const std::string& json) {
         qInfo().noquote() << QString::fromStdString(json);
+    };
+    callbacks.onThrottleChanged = [&](bool throttled) {
+        emit throttleChanged(taskId, throttled);
     };
     callbacks.onNotice = [&](const std::string& message) {
         // Session-logged like telemetry: downgrades must leave a trail

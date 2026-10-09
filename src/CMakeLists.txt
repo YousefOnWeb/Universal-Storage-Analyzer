@@ -1,6 +1,7 @@
 add_executable(usa
     app/main.cpp
     services/IScannerService.cpp
+    services/DiskTelemetry.cpp
     services/OwnerResolver.cpp    services/LocalScannerWorker.cpp
     services/ScanLogger.cpp
     services/ScannerService.cpp
@@ -30,6 +31,12 @@ target_link_libraries(usa PRIVATE
     Qt6::Concurrent
     Qt6::Sql
 )
+if(WIN32)
+    target_link_libraries(usa PRIVATE pdh advapi32)
+endif()
+if(APPLE)
+    target_link_libraries(usa PRIVATE "-framework IOKit" "-framework CoreFoundation")
+endif()
 
 set_target_properties(usa PROPERTIES
     OUTPUT_NAME "UniversalStorageAnalyzer"

@@ -194,6 +194,11 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(scanner_, &ScannerService::scanFinished, this, &MainWindow::onScanFinished);
     connect(scanner_, &ScannerService::analyticsUpdated, this,
             &MainWindow::onAnalyticsUpdated);
+    connect(scanner_, &ScannerService::throttleChanged, this,
+            [this](const QString&, bool throttled) {
+                statusLabel_->setText(throttled ? QStringLiteral("Throttled (disk busy)")
+                                                : QStringLiteral("Scanning…"));
+            });
     connect(extView_->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             [this](const QItemSelection&, const QItemSelection&) { onExtensionPicked(); });
     connect(topView_, &QTableView::clicked, this, [this](const QModelIndex& proxyIdx) {

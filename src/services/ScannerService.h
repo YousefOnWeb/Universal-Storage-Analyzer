@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DiskTelemetry.h"
 #include "IScannerService.h"
 #include "LocalScannerWorker.h"
 
@@ -24,6 +25,7 @@ signals:
     void startRequested(const QString& taskId, const QString& targetPath, bool enableLogging);
     void pauseRequested(bool paused);
     void cancelRequested();
+    void telemetryStartRequested(const QString& targetPath);
     // Re-emitted worker events for UI consumption:
     void scanStarted(const QString& taskId, const QString& targetPath);
     void nodesDiscovered(const QString& taskId, QVector<FileRecord> batch);
@@ -33,6 +35,13 @@ signals:
     void errorOccurred(const QString& taskId, const QString& message, bool fatal);
     void noticeOccurred(const QString& taskId, const QString& message);
     void analyticsUpdated(const QString& taskId, const AnalyticsData& data);
+    void throttleChanged(const QString& taskId, bool throttled);
+
+private:
+    QThread* thread_{nullptr};
+    LocalScannerWorker* worker_{nullptr};
+    QThread* telemetryThread_{nullptr};
+    DiskTelemetry* telemetry_{nullptr};
 
 private:
     QThread* thread_{nullptr};

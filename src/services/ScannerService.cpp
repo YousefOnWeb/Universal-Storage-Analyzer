@@ -4,8 +4,11 @@ ScannerService::ScannerService(QObject* parent)
     : IScannerService(parent)
     , thread_(new QThread(this))
     , worker_(new LocalScannerWorker())
+    , telemetryThread_(new QThread(this))
+    , telemetry_(new DiskTelemetry())
 {
     worker_->moveToThread(thread_);
+    telemetry_->moveToThread(telemetryThread_);
     connect(this, &ScannerService::startRequested, worker_, &LocalScannerWorker::startScanPath);
     // Pause/cancel bypass the worker event loop on purpose: the engine only
     // touches thread-safe primitives, so a direct connection takes effect
@@ -34,8 +37,19 @@ ScannerService::ScannerService(QObject* parent)
             Qt::QueuedConnection);
     connect(worker_, &LocalScannerWorker::analyticsUpdated, this,
             &ScannerService::analyticsUpdated, Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::throttleChanged, this,
+            &ScannerService::throttleChanged, Qt::QueuedConnection);
+    // Sampler runs on its own thread; samples apply straight into the
+    // engine, which only touches atomics plus the permit condition
+    // (same DirectConnection contract as pause/cancel).
+    connect(telemetry_, &DiskTelemetry::sampleReady, worker_,
+            &LocalScannerWorker::applyThrottleSample, Qt::DirectConnection);
+    connect(this, &ScannerService::telemetryStartRequested, telemetry_,
+            &DiskTelemetry::startMonitoring);
+    connect(this, &ScannerService::scanFinished, telemetry_, &DiskTelemetry::stopMonitoring);
 
     thread_->start();
+    telemetryThread_->start();
 }
 
 ScannerService::~ScannerService()
@@ -52,11 +66,19 @@ ScannerService::~ScannerService()
         thread_->terminate();
         thread_->wait();
     }
+    // The sampler owns no blocking work: queue a stop, delete through its
+    // loop, then quit. Queued posts precede quit, so both are delivered.
+    QMetaObject::invokeMethod(telemetry_, &DiskTelemetry::stopMonitoring,
+                              Qt::QueuedConnection);
+    telemetry_->deleteLater();
+    telemetryThread_->quit();
+    telemetryThread_->wait();
 }
 
 QString ScannerService::startScan(const QString& targetPath, bool enableLogging)
 {
     activeTaskId_ = QStringLiteral("scan-%1").arg(++taskCounter_);
+    emit telemetryStartRequested(targetPath);
     emit startRequested(activeTaskId_, targetPath, enableLogging);
     return activeTaskId_;
 }
