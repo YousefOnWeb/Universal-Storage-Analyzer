@@ -36,4 +36,10 @@ jobs:
       - name: Integration tests
         run: ctest --test-dir build -L integration --output-on-failure
       - name: Smoke test
-        run: ./build/src/UniversalStorageAnalyzer --smoke-test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./build/src/UniversalStorageAnalyzer.exe --smoke-test
+          else
+            ./build/src/UniversalStorageAnalyzer --smoke-test
+          fi

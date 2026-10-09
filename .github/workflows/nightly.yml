@@ -17,4 +17,4 @@ jobs:
       - name: All tests
         run: ctest --test-dir build --output-on-failure
       - name: Headless check
-        run: ./build/src/UniversalStorageAnalyzer --headless-check --offline
+        run: ./build/src/UniversalStorageAnalyzer --headless-check
