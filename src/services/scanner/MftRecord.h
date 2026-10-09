@@ -23,7 +23,7 @@ struct MftRecord {
     bool usesClusterMath{false};
     std::uint64_t residentBytes{0};
     std::uint64_t nonResidentClusters{0};
-    
+
     std::wstring name{};
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};

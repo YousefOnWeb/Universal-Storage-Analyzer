@@ -265,7 +265,7 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
             node->lastModifiedTs = rec.lastModifiedTs;
             node->isDirectory = rec.isDirectory;
             node->parent = parentNode;
-            
+
             Node* raw = node.get();
             owned_.emplace(raw->id, std::move(node));
             parentNode->children.push_back(raw);

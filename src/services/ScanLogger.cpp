@@ -89,7 +89,7 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     out << "Available:    " << formatBytes(storage.bytesAvailable()) << "\n";
     out << "Block size:   " << storage.blockSize() << "\n";
     out << "Read-only:    " << (storage.isReadOnly() ? "yes" : "no") << "\n";
-    
+
     out << "[Host]\n";
     out << "OS:           " << QSysInfo::prettyProductName() << "\n";
     out << "Kernel:       " << QSysInfo::kernelType() << " " << QSysInfo::kernelVersion() << "\n";
@@ -108,7 +108,7 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     out << "              POSIX st_blocks), never a fixed cluster estimate\n";
     out << "Threading:    multi-threaded engine pool, serialized callbacks;\n";
     out << "              Qt bridge on dedicated QThread, queued delivery\n";
-    
+
     out << "--------------------------------------------------------------------------------\n";
     out << "[Result]\n";
     out << "Finished:     " << now.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) << "\n";
@@ -118,12 +118,12 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     out << "Total bytes:  " << formatBytes(result.totalBytes) << "\n";
     out << "Batches:      " << result.batchCount << " (" << (result.fileCount + result.dirCount) << " records)\n";
     out << "Errors:       " << result.errorCount << "\n";
-    
+
     double mb = static_cast<double>(result.totalBytes) / (1024.0 * 1024.0);
     double sec = static_cast<double>(result.durationMs) / 1000.0;
     double throughput = sec > 0.0 ? (mb / sec) : 0.0;
     out << "Throughput:   " << QString::number(throughput, 'f', 2) << " MiB/s (logical bytes / duration)\n";
-    
+
     out << "================================================================================\n";
 
     out.flush();

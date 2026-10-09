@@ -178,7 +178,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                 // MS-FSCC 2.4 FILE_NAME: allocated size at +40, real size
                 // at +48, attribute flags at +56.
                 const std::uint64_t allocSize = readU64(p + cstart + 40);
-                
+
                 if (fallbackAllocSize == 0 || fallbackAllocSize < allocSize) {
                     fallbackAllocSize = allocSize;
                 }
@@ -229,7 +229,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
         }
         off += len;
     }
-    
+
     if (hasAttributeList && !hasAnyData) {
         // Multi-extent resident edge case: the entire $DATA attribute was pushed to an extension record.
         // We fall back safely to the allocation size from $FILE_NAME to avoid reporting 0 physical bytes.
@@ -238,7 +238,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
     } else {
         rec.usesClusterMath = true;
     }
-    
+
     return haveName;
 }
 

@@ -241,13 +241,13 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                 childAcc->parent = job.acc;
                 childAcc->id = node.id;
                 DirAcc* childAccPtr = childAcc.get();
-                
+
                 DirAcc* up = job.acc;
                 while (up != nullptr) {
                     up->folders.fetch_add(1, std::memory_order_relaxed);
                     up = up->parent;
                 }
-                
+
                 localDirs.push_back(std::move(childAcc));
 
                 batch.push_back(std::move(node));
@@ -300,7 +300,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     lastTelemetryMs_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
     scanId_ = scanId; // read-only for the rest of the run (workers spawn below)
-    
+
     auto startTime = std::chrono::steady_clock::now();
     runStart_ = startTime;
     queue_.reset();
@@ -365,7 +365,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     }
     emitSweep(callbacks);
     auto endTime = std::chrono::steady_clock::now();
-    
+
     EngineResult result{};
     result.fileCount = fileCount_.load(std::memory_order_relaxed);
     result.dirCount = dirCount_.load(std::memory_order_relaxed);
