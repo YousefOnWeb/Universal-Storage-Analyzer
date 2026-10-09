@@ -15,22 +15,39 @@ ScannerService::ScannerService(QObject* parent)
     connect(this, &ScannerService::cancelRequested, worker_, &LocalScannerWorker::requestCancel,
             Qt::DirectConnection);
 
-    connect(worker_, &LocalScannerWorker::scanStarted, this, &ScannerService::scanStarted);
-    connect(worker_, &LocalScannerWorker::nodesDiscovered, this, &ScannerService::nodesDiscovered);
+    // Worker re-emits cross a thread boundary (worker thread -> GUI
+    // thread). Queued explicitly so delivery stays queued even if the
+    // affinity of either endpoint ever changes.
+    connect(worker_, &LocalScannerWorker::scanStarted, this, &ScannerService::scanStarted,
+            Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::nodesDiscovered, this, &ScannerService::nodesDiscovered,
+            Qt::QueuedConnection);
     connect(worker_, &LocalScannerWorker::branchMetricsUpdated, this,
-            &ScannerService::branchMetricsUpdated);
-    connect(worker_, &LocalScannerWorker::scanProgress, this, &ScannerService::scanProgress);
-    connect(worker_, &LocalScannerWorker::scanFinished, this, &ScannerService::scanFinished);
-    connect(worker_, &LocalScannerWorker::errorOccurred, this, &ScannerService::errorOccurred);
+            &ScannerService::branchMetricsUpdated, Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::scanProgress, this, &ScannerService::scanProgress,
+            Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::scanFinished, this, &ScannerService::scanFinished,
+            Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::errorOccurred, this, &ScannerService::errorOccurred,
+            Qt::QueuedConnection);
 
     thread_->start();
 }
 
 ScannerService::~ScannerService()
 {
-    thread_->quit();
-    thread_->wait();
+    // The worker thread may be blocked inside ScanEngine::run(), which
+    // quit() alone never interrupts. Cancel first so the engine unwinds
+    // (requestCancel also wakes a paused worker), then route deletion
+    // through the worker's own event loop before quitting: a deleteLater()
+    // posted after wait() would never be delivered.
+    worker_->requestCancel();
     worker_->deleteLater();
+    thread_->quit();
+    if (!thread_->wait(5000)) {
+        thread_->terminate();
+        thread_->wait();
+    }
 }
 
 QString ScannerService::startScan(const QString& targetPath, bool enableLogging)

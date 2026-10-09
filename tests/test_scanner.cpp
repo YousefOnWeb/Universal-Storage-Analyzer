@@ -3,6 +3,8 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
+#include <thread>
+
 #include "../src/services/LocalScannerWorker.h"
 
 class TestLocalScanner : public QObject {
@@ -62,6 +64,40 @@ private slots:
                              QStringLiteral("Z:/definitely-not-here-usa-test"));
         QCOMPARE(errSpy.count(), 1);
         QCOMPARE(doneSpy.count(), 1);
+    }
+
+    void rejectsOverlappingScan()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        QFile f{tmp.filePath(QStringLiteral("a.txt"))};
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write(QByteArray(1024, 'x'));
+        f.close();
+
+        LocalScannerWorker worker{};
+        QSignalSpy startedSpy{&worker, &LocalScannerWorker::scanStarted};
+        QSignalSpy doneSpy{&worker, &LocalScannerWorker::scanFinished};
+        QSignalSpy errSpy{&worker, &LocalScannerWorker::errorOccurred};
+
+        // Pre-pause: the engine starts suspended, so the first scan is
+        // guaranteed in flight when the second one arrives.
+        worker.requestPause(true);
+        std::thread first{[&] { worker.startScanPath(QStringLiteral("t1"), tmp.path()); }};
+        QTRY_VERIFY(startedSpy.count() == 1);
+
+        // Runs on this thread while the first scan is suspended: rejected
+        // with a non-fatal error and never emits scanStarted.
+        worker.startScanPath(QStringLiteral("t2"), tmp.path());
+
+        worker.requestPause(false);
+        first.join();
+
+        QCOMPARE(startedSpy.count(), 1);
+        QCOMPARE(doneSpy.count(), 1);
+        QCOMPARE(errSpy.count(), 1);
+        QCOMPARE(errSpy.at(0).at(0).toString(), QStringLiteral("t2"));
+        QVERIFY(!errSpy.at(0).at(2).toBool());
     }
 };
 

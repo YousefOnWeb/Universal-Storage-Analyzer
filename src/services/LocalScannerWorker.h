@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QVector>
 
+#include <atomic>
 #include <mutex>
 
 #include "scanner/ScanEngine.h"
@@ -10,7 +11,14 @@
 
 // Thin Qt bridge over ScanEngine: translates backend-neutral engine output
 // into FileRecord batches and Qt signals. The engine does all traversal,
-// threading, batching, and aggregation; this class owns no scan state.
+// threading, batching, and aggregation; this class owns no scan results.
+//
+// Threading: startScanPath() blocks the worker thread inside
+// ScanEngine::run(). requestPause()/requestCancel() only touch the
+// engine's thread-safe primitives, so the service invokes them with a
+// direct connection and they take effect even mid-scan. The engine is
+// single-flight: overlapping startScanPath() calls are rejected with a
+// non-fatal error.
 //
 // Threading: startScanPath() blocks the worker thread inside
 // ScanEngine::run(). requestPause()/requestCancel() only touch the
@@ -40,4 +48,5 @@ signals:
 private:
     usa::scanner::ScanEngine engine_;
     std::mutex pendingMutex_;
+    std::atomic<bool> scanActive_{false};
 };

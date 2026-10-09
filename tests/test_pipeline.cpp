@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QElapsedTimer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -63,6 +64,34 @@ private slots:
         }
         QCOMPARE(subBytes, static_cast<qulonglong>(200));
         QCOMPARE(subRows, 1); // b.bin
+    }
+
+    void destroysServiceWhileScanSuspended()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        {
+            std::ofstream f{root / "a.bin", std::ios::binary};
+            f.write(std::string(100, 'x').data(), 100);
+        }
+
+        auto* svc = new ScannerService();
+        QSignalSpy startedSpy{svc, &ScannerService::scanStarted};
+        QSignalSpy doneSpy{svc, &ScannerService::scanFinished};
+        const QString task = svc->startScan(tmp.path());
+        // Direct connection: suspends the engine before the worker thread
+        // picks up the queued start, so the scan is guaranteed in flight.
+        svc->toggleScanState(task, true);
+        QTRY_VERIFY(startedSpy.count() == 1);
+        QVERIFY(doneSpy.isEmpty()); // suspended: cannot have finished
+
+        // Must cancel the suspended engine and return promptly instead of
+        // blocking forever or leaking the worker.
+        QElapsedTimer timer{};
+        timer.start();
+        delete svc;
+        QVERIFY(timer.elapsed() < 30000);
     }
 };
 
