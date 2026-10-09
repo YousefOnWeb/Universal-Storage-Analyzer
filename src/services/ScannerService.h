@@ -32,6 +32,7 @@ signals:
                       quint64 totalBytes);
     void errorOccurred(const QString& taskId, const QString& message, bool fatal);
     void noticeOccurred(const QString& taskId, const QString& message);
+    void analyticsUpdated(const QString& taskId, const AnalyticsData& data);
 
 private:
     QThread* thread_{nullptr};

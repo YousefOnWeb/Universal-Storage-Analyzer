@@ -10,6 +10,7 @@ add_executable(usa
     services/scanner/ScanEngine.cpp
     models/FileSystemModel.cpp
     models/DetailsTableModel.cpp
+    models/StatsTableModel.cpp
     models/TreeFilterProxy.cpp
     ui/ThemeManager.cpp
     ui/TreemapWidget.cpp

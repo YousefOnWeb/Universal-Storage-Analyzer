@@ -3,6 +3,7 @@
 #include <QMetaType>
 #include <QString>
 #include <QtGlobal>
+#include <QVector>
 
 // Qt-friendly projection of an engine node for queued signal transport.
 // The engine structs stay Qt-free; conversion happens at the boundary.
@@ -28,3 +29,44 @@ struct BranchMetrics {
 };
 
 Q_DECLARE_METATYPE(BranchMetrics)
+
+// Qt-friendly analytics snapshot for queued signal transport. Converted
+// from usa::scanner::AnalyticsSnapshot at the bridge; display strings
+// (% shares, bucket labels) are built here, never in the engine.
+struct AnalyticsExtension {
+    QString extension{};
+    quint64 bytes{0};
+    quint64 files{0};
+    double sharePct{0.0};
+};
+
+struct AnalyticsTopFile {
+    quint32 nodeId{0};
+    QString path{};
+    QString name{};
+    quint64 bytes{0};
+};
+
+struct AnalyticsAgeBucket {
+    QString label{};
+    quint64 files{0};
+    quint64 bytes{0};
+};
+
+struct AnalyticsOwner {
+    QString owner{};
+    quint64 bytes{0};
+    quint64 files{0};
+    double sharePct{0.0};
+};
+
+struct AnalyticsData {
+    QVector<AnalyticsExtension> extensions{};
+    QVector<AnalyticsTopFile> top{};
+    QVector<AnalyticsAgeBucket> age{};
+    QVector<AnalyticsOwner> owners{};
+    quint64 totalBytes{0};
+    quint64 totalFiles{0};
+};
+
+Q_DECLARE_METATYPE(AnalyticsData)

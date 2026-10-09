@@ -288,6 +288,7 @@ int main(int argc, char* argv[])
     qRegisterMetaType<FileRecord>("FileRecord");
     qRegisterMetaType<QVector<FileRecord>>("QVector<FileRecord>");
     qRegisterMetaType<BranchMetrics>("BranchMetrics");
+    qRegisterMetaType<AnalyticsData>("AnalyticsData");
 
     QCommandLineParser parser{};
     setupCliParser(parser);

@@ -2,6 +2,7 @@
 
 #include "../src/models/DetailsTableModel.h"
 #include "../src/models/FileSystemModel.h"
+#include "../src/models/StatsTableModel.h"
 #include "../src/models/TreeFilterProxy.h"
 #include "../src/services/ScanTypes.h"
 
@@ -296,6 +297,32 @@ private slots:
         proxy.setSearchText(QStringLiteral("f2"));
         QCOMPARE(proxy.rowCount(), 1);
         QCOMPARE(proxy.data(proxy.index(0, 0)).toString(), QStringLiteral("D"));
+    }
+
+    void statsModelReplacesRowsWithSortKeys()
+    {
+        StatsTableModel model{};
+        model.setHeaders({QStringLiteral("Extension"), QStringLiteral("Bytes")});
+        QCOMPARE(model.columnCount(), 2);
+        QCOMPARE(model.headerData(0, Qt::Horizontal).toString(), QStringLiteral("Extension"));
+
+        StatsRow a{};
+        a.text = {QStringLiteral(".log"), QStringLiteral("300 (50.0%)")};
+        a.keys = {0, 300};
+        StatsRow b{};
+        b.text = {QStringLiteral(".mp4"), QStringLiteral("300 (50.0%)")};
+        b.keys = {0, 300};
+        b.nodeId = 9;
+        model.setRows({a, b});
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(model.index(0, 1)).toString(), QStringLiteral("300 (50.0%)"));
+        QCOMPARE(model.data(model.index(0, 1), FileSystemModel::Roles::SortRole).toULongLong(),
+                 static_cast<qulonglong>(300));
+        QCOMPARE(model.rowNodeId(1), static_cast<quint32>(9));
+        QCOMPARE(model.rowNodeId(7), static_cast<quint32>(0));
+
+        model.setRows({});
+        QCOMPARE(model.rowCount(), 0);
     }
 };
 

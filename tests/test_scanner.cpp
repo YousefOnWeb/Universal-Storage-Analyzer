@@ -66,6 +66,43 @@ private slots:
         QCOMPARE(doneSpy.count(), 1);
     }
 
+    void forwardsAnalyticsSnapshot()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        QFile f1{tmp.filePath(QStringLiteral("a.log"))};
+        QVERIFY(f1.open(QIODevice::WriteOnly));
+        f1.write(QByteArray(100, 'x'));
+        f1.close();
+        QFile f2{tmp.filePath(QStringLiteral("b.bin"))};
+        QVERIFY(f2.open(QIODevice::WriteOnly));
+        f2.write(QByteArray(200, 'y'));
+        f2.close();
+
+        LocalScannerWorker worker{};
+        QSignalSpy analyticsSpy{&worker, &LocalScannerWorker::analyticsUpdated};
+        QSignalSpy doneSpy{&worker, &LocalScannerWorker::scanFinished};
+        worker.startScanPath(QStringLiteral("t3"), tmp.path());
+        QCOMPARE(doneSpy.count(), 1);
+        QVERIFY(!analyticsSpy.isEmpty()); // exact finals always fire
+
+        const AnalyticsData data =
+            analyticsSpy.at(analyticsSpy.count() - 1).at(1).value<AnalyticsData>();
+        QCOMPARE(data.totalBytes, static_cast<quint64>(300));
+        QCOMPARE(data.totalFiles, static_cast<quint64>(2));
+        QCOMPARE(data.top.size(), 2);
+        QCOMPARE(data.top[0].bytes, static_cast<quint64>(200));
+        QVERIFY(data.top[0].nodeId != 0);
+        QVERIFY(!data.extensions.isEmpty());
+        QVERIFY(!data.age.isEmpty());
+        QVERIFY(!data.owners.isEmpty());
+        std::uint64_t extBytes{0};
+        for (const auto& row : data.extensions) {
+            extBytes += row.bytes;
+        }
+        QCOMPARE(extBytes, static_cast<quint64>(300)); // extensions cover every byte
+    }
+
     void rejectsOverlappingScan()
     {
         QTemporaryDir tmp{};

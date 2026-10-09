@@ -37,12 +37,15 @@ struct AnalyticsSnapshot {
     // Extensions and owners sorted by bytes desc; top files desc.
     std::vector<std::pair<std::string, ExtensionStat>> extensions{};
     std::vector<TopEntry> top{};
-    // Parallel to ageEdges.size()+1: bucket i covers [edge[i-1], edge[i]).
     // Edges ride along so panes label buckets without a second channel.
     std::vector<std::uint64_t> ageEdges{};
+    // Parallel to ageEdges.size()+1: bucket i covers [edge[i-1], edge[i]).
     std::vector<std::uint64_t> ageBytes{};
     std::vector<std::uint64_t> ageFiles{};
     std::vector<std::pair<std::string, OwnerStat>> owners{};
+    // Running totals for share-% denominators.
+    std::uint64_t totalBytes{0};
+    std::uint64_t totalFiles{0};
 };
 
 class Analytics {
@@ -110,6 +113,8 @@ public:
         ext_.clear();
         owners_.clear();
         heap_.clear();
+        totalBytes_ = 0;
+        totalFiles_ = 0;
         ageBytes_.assign(ageEdges_.size() + 1, 0);
         ageFiles_.assign(ageEdges_.size() + 1, 0);
     }
@@ -138,6 +143,8 @@ public:
         auto& os = owners_[ownerId.empty() ? kUnknownOwner : ownerId];
         os.bytes += bytes;
         ++os.files;
+        totalBytes_ += bytes;
+        ++totalFiles_;
         if (ageKnown && !ageBytes_.empty()) {
             const std::size_t b = bucketFor(ageDays);
             ageBytes_[b] += bytes;
@@ -169,6 +176,8 @@ public:
         out.ageEdges = ageEdges_;
         out.ageBytes = ageBytes_;
         out.ageFiles = ageFiles_;
+        out.totalBytes = totalBytes_;
+        out.totalFiles = totalFiles_;
         out.owners.reserve(owners_.size());
         for (const auto& [owner, st] : owners_) {
             out.owners.emplace_back(owner, st);
@@ -195,6 +204,8 @@ private:
     mutable std::mutex mutex_{};
     std::vector<std::uint64_t> ageEdges_{1, 7, 30, 180, 365};
     std::size_t topN_{1000};
+    std::uint64_t totalBytes_{0};
+    std::uint64_t totalFiles_{0};
     std::unordered_map<std::string, ExtensionStat> ext_{};
     std::unordered_map<std::string, OwnerStat> owners_{};
     std::vector<std::uint64_t> ageBytes_{};

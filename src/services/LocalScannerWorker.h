@@ -47,6 +47,7 @@ signals:
     // Informational notices (backend downgrades): shown transiently, never
     // collected as skipped items.
     void noticeOccurred(const QString& taskId, const QString& message);
+    void analyticsUpdated(const QString& taskId, const AnalyticsData& data);
 
 private:
     usa::scanner::ScanEngine engine_;

@@ -113,9 +113,21 @@ private slots:
         QVERIFY(snap.extensions.empty());
         QVERIFY(snap.top.empty());
         QVERIFY(snap.owners.empty());
+        QCOMPARE(snap.totalBytes, static_cast<std::uint64_t>(0));
+        QCOMPARE(snap.totalFiles, static_cast<std::uint64_t>(0));
         for (const auto b : snap.ageBytes) {
             QCOMPARE(b, static_cast<std::uint64_t>(0));
         }
+    }
+
+    void totalsCoverEveryByte()
+    {
+        Analytics a{};
+        a.recordFile(1, "a.log", "/a.log", 100, 0, true, "u1");
+        a.recordFile(2, "b.bin", "/b.bin", 200, 5, true, "u2");
+        const auto snap = a.snapshot();
+        QCOMPARE(snap.totalBytes, static_cast<std::uint64_t>(300));
+        QCOMPARE(snap.totalFiles, static_cast<std::uint64_t>(2));
     }
 };
 

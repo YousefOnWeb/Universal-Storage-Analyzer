@@ -27,6 +27,7 @@ add_usa_test(test_scanengine test_scanengine.cpp integration)
 add_usa_test(test_filesystemmodel test_filesystemmodel.cpp unit
     ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp
     ${CMAKE_SOURCE_DIR}/src/models/DetailsTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/StatsTableModel.cpp
     ${CMAKE_SOURCE_DIR}/src/models/TreeFilterProxy.cpp)
 add_usa_test(test_utf8 test_utf8.cpp unit)
 add_usa_test(test_pipeline test_pipeline.cpp integration
