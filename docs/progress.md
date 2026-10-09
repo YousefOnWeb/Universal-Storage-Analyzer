@@ -1,5 +1,45 @@
 # Progress
 
+## Completed (2026-10-09) — full revision pass over the scan engine
+
+Fourteen atomic commits, each verified (build + full suite green before
+commit). 9/9 suites green (3 unit + 5 integration + 1 ui), lint clean,
+`--smoke-test`/`--headless-check` verified live.
+
+- Correctness: NTFS `$FILE_NAME` allocated-size offset (+40, was reading
+  flags) and standard sparse data-run decoding (`lcnBytes==0` emits a
+  sparse run; VCN accounting no longer collapses across holes) — both with
+  fixture tests. DirectMFT stays opt-in/fallback until proven on an
+  elevated volume.
+- Teardown: `ScannerService` destructor cancels before quit, deletes via
+  the worker loop, bounded wait with terminate fallback (was: hang-prone
+  `quit()+wait()` + never-delivered `deleteLater`); destroy-mid-scan test.
+- Worker: batch signals assembled under lock, emitted outside it;
+  atomic single-flight guard rejects overlapping runs (tested via
+  pre-paused overlap).
+- Hardening: `DirectoryFinder` memcpy field readers (alignment UB),
+  `toLongPath` recursion guard, buffer reuse across opens (+relative-path
+  test); lock-free pause/cancel flags; `ScanLogger` casts, honest
+  batch/allocation lines, loud open failures, filename sanitizing; MFT
+  volume cache validated by serial; `VirtualAlloc` RAII; truthful 2 GiB
+  cap message.
+- Removed: dead `FileTree`/`FSNode` domain container and its test
+  (`ScanEngine` + `FileSystemModel` own scan state); docs updated.
+- Models/UI: details selection clears synchronously on source reset
+  (a mid-reset `QPersistentModelIndex` dies at `endResetModel`, and a
+  post-reset one leaves proxies stale — plain index + clear is documented
+  in the header); duplicated `clear()` lines removed; Ctrl+O/Ctrl+F/Ctrl+L
+  shortcuts; scan target persisted; skip summary gains a next step.
+- Build/CI: nightly `--offline` dropped (flag never existed); per-OS
+  smoke paths; no committed machine-specific Qt prefix (pass
+  `-DCMAKE_PREFIX_PATH` or `QT_PREFIX`); parent-console attach for CLI
+  modes that preserves piped output; SHA-pinned actions; whitespace lint
+  job; offscreen `test_ui` (`ui` CTest label) covering both panes and the
+  end-to-end skip summary.
+- Deferred with reasons (not silent): deep `loadVolume`/`getMftExtents`
+  decomposition (elevation-gated, unverifiable here); full clang-format
+  adoption (tool absent; lint is whitespace-level); signing/attestations.
+
 ## Completed (2026-10-04)
 
 - Project initialized per concept/discovery, architecture, Sprint 1, and
@@ -60,6 +100,12 @@
 
 ## Next tasks
 
-- Milestone 2: treemap/pie/bar charts + Extensions/Users/Age/Top analytics.
+- Merge `feature/scan-engine` into `main` (rebase, PR, green CI incl.
+  lint/ui jobs), then delete `feature/scan-engine` + stale
+  `feature/scan-logging`.
+- Milestone 2: treemap/pie/bar charts + Extensions/Users/Age/Top analytics
+  — written spec + approved plan before code (tabs already stubbed).
 - Milestone 2: VFS + SSH/S3/Azure/WebDAV read paths behind `IScannerService`.
 - Harden: pause/resume button, error rows for denied paths, export stubs live.
+- Follow-ups: elevated DirectMFT proof scan; clang-format adoption;
+  `loadVolume` decomposition; signing/attestations.

@@ -15,6 +15,9 @@ All notable user-facing changes are recorded here.
 - Error severity: fatal errors pop up immediately; per-directory skips
   are collected into one end-of-scan summary dialog.
 - Numeric sort role: sorting compares raw integers, including Last Modified.
+- Expert shortcuts: Ctrl+O select target, Ctrl+F find, Ctrl+L focus target.
+- Scan target folder persisted across launches.
+- Skip summary suggests next steps (re-run elevated, exclude system folders).
 
 ### Changed
 
@@ -35,6 +38,12 @@ All notable user-facing changes are recorded here.
 - Fail-fast crash on names with unpaired surrogates (infallible converter;
   shared log writes serialized).
 - SQLite duplicate-connection warning on repeated initialization.
+- NTFS record parsing: allocated size and sparse data runs decoded per
+  spec (multi-extent fallback and hole accounting corrected).
+- Shutdown during an active scan no longer blocks; overlapping scans are
+  rejected with a non-fatal error instead of sharing engine state.
+- Details pane no longer follows freed nodes across scan resets.
+- CLI modes attach to the parent console when stdout has nowhere to go.
 
 ## [0.1.0] — 2026-10-04
 
