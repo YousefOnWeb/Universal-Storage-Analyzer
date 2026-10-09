@@ -1,7 +1,6 @@
 add_executable(usa
     app/main.cpp
-    services/IScannerService.cpp
-    services/LocalScannerWorker.cpp
+    services/IScannerService.cpp    services/LocalScannerWorker.cpp
     services/ScanLogger.cpp
     services/ScannerService.cpp
     services/DatabaseManager.cpp
@@ -12,6 +11,7 @@ add_executable(usa
     models/FileSystemModel.cpp
     models/DetailsTableModel.cpp
     ui/ThemeManager.cpp
+    ui/TreemapWidget.cpp
     ui/MainWindow.cpp
     resources/app.qrc
 )

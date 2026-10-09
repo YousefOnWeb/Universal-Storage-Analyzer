@@ -5,6 +5,7 @@
 #include "../models/DetailsTableModel.h"
 #include "../models/FileSystemModel.h"
 #include "../services/ScannerService.h"
+#include "TreemapWidget.h"
 
 #include <QComboBox>
 #include <QLabel>
@@ -42,6 +43,7 @@ private:
     void buildToolbar();
     void restoreWindowState();
     void saveWindowState();
+    void selectTreeNode(quint32 nodeId);
     static QString formatBytes(quint64 bytes, const QString& unit);
 
     FileSystemModel* model_{nullptr};
@@ -55,6 +57,8 @@ private:
     DetailsTableModel* detailsModel_{nullptr};
     QTabWidget* tabs_{nullptr};
     QSplitter* splitter_{nullptr};
+    QSplitter* rightSplitter_{nullptr};
+    TreemapWidget* treemap_{nullptr};
     QLineEdit* quickSearch_{nullptr};
     QLineEdit* targetEdit_{nullptr};
     QPushButton* startStopBtn_{nullptr};

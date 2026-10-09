@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ThemeManager.h"
+#include "TreemapWidget.h"
 
 #include <QActionGroup>
 #include <QApplication>
@@ -67,7 +68,8 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     treeProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     tree_->setModel(treeProxy_);
 
-    tabs_ = new QTabWidget(splitter_);
+    rightSplitter_ = new QSplitter(Qt::Vertical, splitter_);
+    tabs_ = new QTabWidget(rightSplitter_);
     detailsView_ = new QTableView(tabs_);
     detailsView_->setAccessibleName(QStringLiteral("Details table"));
     detailsView_->setSortingEnabled(true);
@@ -94,9 +96,14 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     }
 
     splitter_->addWidget(tree_);
-    splitter_->addWidget(tabs_);
+    splitter_->addWidget(rightSplitter_);
     splitter_->setStretchFactor(0, 1);
     splitter_->setStretchFactor(1, 2);
+    treemap_ = new TreemapWidget(model_, rightSplitter_);
+    rightSplitter_->addWidget(tabs_);
+    rightSplitter_->addWidget(treemap_);
+    rightSplitter_->setStretchFactor(0, 3);
+    rightSplitter_->setStretchFactor(1, 2);
     layout->addWidget(splitter_, 1);
     setCentralWidget(central);
 
@@ -124,6 +131,23 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(quickSearch_, &QLineEdit::textChanged, this, &MainWindow::onQuickSearchChanged);
     connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex&, const QModelIndex&) { onTreeSelectionChanged(); });
+    // Treemap follows the model through a debounce (live scans must not
+    // repaint-storm); selection changes re-root it immediately.
+    connect(model_, &FileSystemModel::rowsInserted, treemap_, &TreemapWidget::refreshSoon);
+    connect(model_, &FileSystemModel::dataChanged, treemap_, &TreemapWidget::refreshSoon);
+    connect(model_, &FileSystemModel::modelResetForNewScan, this,
+            [this](const QString&) { treemap_->setRootId(0); });
+    connect(treemap_, &TreemapWidget::tileClicked, this,
+            [this](quint32 id) { selectTreeNode(id); });
+    connect(treemap_, &TreemapWidget::tileDoubleClicked, this, [this](quint32 id) {
+        selectTreeNode(id);
+        if (model_->isDirectoryNode(id)) {
+            const QModelIndex proxy = treeProxy_->mapFromSource(model_->indexForNodeId(id));
+            if (proxy.isValid()) {
+                tree_->expand(proxy);
+            }
+        }
+    });
     connect(scanner_, &ScannerService::scanFinished, this, &MainWindow::onScanFinished);
     connect(scanner_, &ScannerService::scanProgress, this,
             [this](const QString&, const QString& p) { statusLabel_->setText(p); });
@@ -299,6 +323,25 @@ void MainWindow::onTreeSelectionChanged()
     const QModelIndex cur = tree_->currentIndex();
     const QModelIndex src = treeProxy_->mapToSource(cur);
     detailsModel_->setSelectedNode(src.isValid() ? src : QModelIndex{});
+    // The treemap shows a folder's children: re-root on folder selection,
+    // keep the parent context when a file is picked.
+    const quint32 id = model_->nodeIdForIndex(src);
+    if (model_->isDirectoryNode(id)) {
+        treemap_->setRootId(id);
+    }
+}
+
+void MainWindow::selectTreeNode(quint32 nodeId)
+{
+    const QModelIndex src = model_->indexForNodeId(nodeId);
+    if (!src.isValid()) {
+        return;
+    }
+    const QModelIndex proxy = treeProxy_->mapFromSource(src);
+    if (proxy.isValid()) {
+        tree_->scrollTo(proxy);
+        tree_->setCurrentIndex(proxy);
+    }
 }
 
 void MainWindow::onQuickSearchChanged(const QString& text)
@@ -321,6 +364,7 @@ void MainWindow::restoreWindowState()
     restoreGeometry(s.value(QStringLiteral("main/geometry")).toByteArray());
     QMainWindow::restoreState(s.value(QStringLiteral("main/windowState")).toByteArray());
     splitter_->restoreState(s.value(QStringLiteral("main/splitter")).toByteArray());
+    rightSplitter_->restoreState(s.value(QStringLiteral("main/rightSplitter")).toByteArray());
     const QString unit = s.value(QStringLiteral("main/units"), QStringLiteral("Auto")).toString();
     unitsCombo_->setCurrentText(unit);
     targetEdit_->setText(
@@ -334,6 +378,7 @@ void MainWindow::saveWindowState()
     s.setValue(QStringLiteral("main/geometry"), saveGeometry());
     s.setValue(QStringLiteral("main/windowState"), QMainWindow::saveState());
     s.setValue(QStringLiteral("main/splitter"), splitter_->saveState());
+    s.setValue(QStringLiteral("main/rightSplitter"), rightSplitter_->saveState());
     s.setValue(QStringLiteral("main/units"), unitsCombo_->currentText());
     s.setValue(QStringLiteral("main/target"), targetEdit_->text());
 }

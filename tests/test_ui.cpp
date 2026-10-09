@@ -17,6 +17,7 @@
 #include "../src/services/ScannerService.h"
 #include "../src/ui/MainWindow.h"
 #include "../src/ui/ThemeManager.h"
+#include "../src/ui/TreemapWidget.h"
 
 // MainWindow behavior under the offscreen platform (CTest label `ui`,
 // QT_QPA_PLATFORM=offscreen): model content reaches the views, and the
@@ -177,6 +178,77 @@ private slots:
 
         QCOMPARE(status->text(), QStringLiteral("Ready (1 skipped)"));
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(100));
+    }
+
+    void treemapFollowsSelectionAndSelectsTree()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 1;
+        f2.name = QStringLiteral("f2");
+        f2.logicalSize = 500;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1, f2});
+        BranchMetrics dm{};
+        dm.nodeId = 1;
+        dm.logicalSize = 500;
+        dm.allocatedSize = 4096;
+        dm.fileCount = 1;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), dm);
+
+        auto* treemap = win.findChild<TreemapWidget*>();
+        QVERIFY(treemap != nullptr);
+        // Live model churn refreshes through a 250 ms debounce: outlive it.
+        treemap->refreshSoon();
+        QTest::qWait(500);
+        QCOMPARE(treemap->tileCount(), static_cast<std::size_t>(2)); // D + f1
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        // The tree proxy sorts: locate rows by name, never by position.
+        const auto proxyRowByName = [&](const QString& name) {
+            for (int r = 0; r < tree->model()->rowCount(); ++r) {
+                const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+                if (tree->model()->data(idx).toString() == name) {
+                    return idx;
+                }
+            }
+            return QModelIndex{};
+        };
+        const QModelIndex dIdx = proxyRowByName(QStringLiteral("D"));
+        QVERIFY(dIdx.isValid());
+        tree->setCurrentIndex(dIdx);
+        QCOMPARE(treemap->rootId(), static_cast<quint32>(1));
+        QCOMPARE(treemap->tileCount(), static_cast<std::size_t>(1)); // f2
+
+        // Tile click drives the tree: full loop through real wiring.
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        QSignalSpy clickedSpy{treemap, &TreemapWidget::tileClicked};
+        treemap->selectTile(3);
+        QCOMPARE(clickedSpy.count(), 1);
+        const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
+        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(3));
+
+        // Selecting a file keeps the treemap's folder context.
+        tree->setCurrentIndex(proxyRowByName(QStringLiteral("f1")));
+        QCOMPARE(treemap->rootId(), static_cast<quint32>(1));
     }
 };
 
