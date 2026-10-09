@@ -1,6 +1,7 @@
 add_executable(usa
     app/main.cpp
-    services/IScannerService.cpp    services/LocalScannerWorker.cpp
+    services/IScannerService.cpp
+    services/OwnerResolver.cpp    services/LocalScannerWorker.cpp
     services/ScanLogger.cpp
     services/ScannerService.cpp
     services/DatabaseManager.cpp

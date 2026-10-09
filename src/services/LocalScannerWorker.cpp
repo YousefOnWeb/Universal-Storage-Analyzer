@@ -155,7 +155,7 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         }
         for (const auto& [owner, st] : snap.owners) {
             AnalyticsOwner row{};
-            row.owner = QString::fromStdString(owner);
+            row.owner = resolver_.displayName(owner);
             row.bytes = st.bytes;
             row.files = st.files;
             row.sharePct = total > 0.0 ? (static_cast<double>(st.bytes) / total * 100.0)

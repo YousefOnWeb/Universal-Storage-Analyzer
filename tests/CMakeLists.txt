@@ -2,10 +2,14 @@ function(add_usa_test name source label)
     add_executable(${name} ${source})
     target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(${name} PRIVATE Qt6::Test Qt6::Core Qt6::Widgets Qt6::Sql)
+    if(WIN32)
+        target_link_libraries(${name} PRIVATE advapi32)
+    endif()
     # Domain + worker + scanner sources reused without pulling the GUI app.
     # Extra per-test sources may follow the label.
     target_sources(${name} PRIVATE
         ${CMAKE_SOURCE_DIR}/src/services/LocalScannerWorker.cpp
+        ${CMAKE_SOURCE_DIR}/src/services/OwnerResolver.cpp
         ${CMAKE_SOURCE_DIR}/src/services/ScanLogger.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/MftFinder.cpp
@@ -20,6 +24,7 @@ endfunction()
 add_usa_test(test_scanner test_scanner.cpp integration)
 add_usa_test(test_blockingqueue test_blockingqueue.cpp unit)
 add_usa_test(test_analytics test_analytics.cpp unit)
+add_usa_test(test_ownerresolver test_ownerresolver.cpp unit)
 add_usa_test(test_treemap test_treemap.cpp unit)
 add_usa_test(test_directoryfinder test_directoryfinder.cpp integration)
 add_usa_test(test_mftfinder test_mftfinder.cpp integration)

@@ -105,6 +105,10 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
                              QStringLiteral("Share"), QStringLiteral("Files")});
     ageModel_->setHeaders({QStringLiteral("Age"), QStringLiteral("Files"),
                            QStringLiteral("Bytes")});
+    tabs_->setTabToolTip(
+        tabs_->indexOf(usersView_),
+        QStringLiteral("File owners where the backend captures them; "
+                       "(unknown) where it cannot (e.g. Windows native enumeration)"));
 
     splitter_->addWidget(tree_);
     splitter_->addWidget(rightSplitter_);

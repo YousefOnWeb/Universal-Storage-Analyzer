@@ -446,6 +446,9 @@ private slots:
         auto* usersView = win.findChild<QTableView*>(QStringLiteral("Users"));
         QVERIFY(usersView != nullptr);
         QCOMPARE(usersView->model()->rowCount(), 1);
+        // Unresolvable ids pass through verbatim on every platform.
+        QCOMPARE(usersView->model()->data(usersView->model()->index(0, 0)).toString(),
+                 QStringLiteral("tester"));
         auto* ageView = win.findChild<QTableView*>(QStringLiteral("Age of Files"));
         QVERIFY(ageView != nullptr);
         QCOMPARE(ageView->model()->rowCount(), 1);

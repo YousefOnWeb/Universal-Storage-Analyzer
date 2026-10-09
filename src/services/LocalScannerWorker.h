@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "scanner/ScanEngine.h"
+#include "OwnerResolver.h"
 #include "ScanTypes.h"
 
 // Thin Qt bridge over ScanEngine: translates backend-neutral engine output
@@ -51,6 +52,7 @@ signals:
 
 private:
     usa::scanner::ScanEngine engine_;
+    OwnerResolver resolver_;
     std::mutex pendingMutex_;
     std::atomic<bool> scanActive_{false};
 };
