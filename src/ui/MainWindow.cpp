@@ -138,6 +138,16 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
                 }
             });
 
+    // Expert keyboard paths: Ctrl+L focuses the target box (browser-style
+    // location shortcut). Ctrl+O/Ctrl+F live on their menu actions above.
+    auto* focusTargetAct = new QAction(this);
+    focusTargetAct->setShortcut(QKeySequence(QStringLiteral("Ctrl+L")));
+    connect(focusTargetAct, &QAction::triggered, this, [this] {
+        targetEdit_->setFocus();
+        targetEdit_->selectAll();
+    });
+    addAction(focusTargetAct);
+
     // Drive overview
     QStringList drives{};
     for (const QStorageInfo& vol : QStorageInfo::mountedVolumes()) {
@@ -163,7 +173,9 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
 void MainWindow::buildMenus()
 {
     auto* file = menuBar()->addMenu(QStringLiteral("&File"));
-    file->addAction(QStringLiteral("Select Target…"), this, &MainWindow::onBrowseTarget);
+    auto* targetAct =
+        file->addAction(QStringLiteral("Select Target…"), this, &MainWindow::onBrowseTarget);
+    targetAct->setShortcut(QKeySequence::Open); // Ctrl+O
     file->addSeparator();
     file->addAction(QStringLiteral("E&xit"), qApp, &QApplication::quit);
 
@@ -187,6 +199,9 @@ void MainWindow::buildMenus()
         group->addAction(act);
         connect(act, &QAction::triggered, this, &MainWindow::onThemeAction);
     }
+    auto* findAct = view->addAction(QStringLiteral("&Find…"));
+    findAct->setShortcut(QKeySequence::Find); // Ctrl+F
+    connect(findAct, &QAction::triggered, this, [this] { quickSearch_->setFocus(); });
 }
 
 void MainWindow::buildToolbar()
@@ -268,7 +283,8 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
         }
         QMessageBox summary(QMessageBox::Warning, QStringLiteral("Scan completed with skipped items"),
                             QStringLiteral("%1 director%2 could not be scanned and %3 excluded "
-                                           "from the results.")
+                                           "from the results. Re-run as administrator or exclude "
+                                           "system folders to reduce skips.")
                                 .arg(skippedTotal)
                                 .arg(skippedTotal == 1 ? QStringLiteral("y") : QStringLiteral("ies"))
                                 .arg(skippedTotal == 1 ? QStringLiteral("is") : QStringLiteral("are")),
@@ -307,6 +323,8 @@ void MainWindow::restoreWindowState()
     splitter_->restoreState(s.value(QStringLiteral("main/splitter")).toByteArray());
     const QString unit = s.value(QStringLiteral("main/units"), QStringLiteral("Auto")).toString();
     unitsCombo_->setCurrentText(unit);
+    targetEdit_->setText(
+        s.value(QStringLiteral("main/target"), QDir::homePath()).toString());
 }
 
 void MainWindow::saveWindowState()
@@ -317,6 +335,7 @@ void MainWindow::saveWindowState()
     s.setValue(QStringLiteral("main/windowState"), QMainWindow::saveState());
     s.setValue(QStringLiteral("main/splitter"), splitter_->saveState());
     s.setValue(QStringLiteral("main/units"), unitsCombo_->currentText());
+    s.setValue(QStringLiteral("main/target"), targetEdit_->text());
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
