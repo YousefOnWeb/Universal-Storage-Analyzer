@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -17,6 +18,28 @@ static QString formatBytes(qint64 bytes)
     return QStringLiteral("%1 bytes (%2 GiB)").arg(bytes).arg(gb, 0, 'f', 2);
 }
 
+static QString formatBytes(quint64 bytes)
+{
+    const double gb = static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
+    return QStringLiteral("%1 bytes (%2 GiB)").arg(bytes).arg(gb, 0, 'f', 2);
+}
+
+// Task IDs become filename components: strip anything that could escape
+// the scan-logs directory on any platform.
+static QString sanitizeForFilename(const QString& taskId)
+{
+    QString safe{taskId};
+    for (auto& ch : safe) {
+        const ushort u = ch.unicode();
+        const bool ok = (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')
+                        || (u >= '0' && u <= '9') || u == '-' || u == '_' || u == '.';
+        if (!ok) {
+            ch = u'_';
+        }
+    }
+    return safe.isEmpty() ? QStringLiteral("scan") : safe;
+}
+
 void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, const usa::scanner::EngineResult& result)
 {
     const QString logsDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/scan-logs");
@@ -25,11 +48,13 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     const QDateTime now = QDateTime::currentDateTime();
     const QString timestamp = now.toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
     const QString pid = QString::number(QCoreApplication::applicationPid());
-    const QString filename = QStringLiteral("scan_%1_pid%2_%3.log").arg(timestamp, pid, taskId);
+    const QString filename =
+        QStringLiteral("scan_%1_pid%2_%3.log").arg(timestamp, pid, sanitizeForFilename(taskId));
     const QString filePath = logsDir + QStringLiteral("/") + filename;
 
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "ScanLogger: cannot write diagnostic log" << filePath << file.errorString();
         return;
     }
 
@@ -77,9 +102,12 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
         backendStr = "Direct NTFS Master File Table (MFT) parser";
     }
     out << "Traversal:    " << backendStr << "\n";
-    out << "Batch size:   500 records per nodesDiscovered event\n";
-    out << "Cluster:      4096 bytes (allocated_size estimate)\n";
-    out << "Threading:    1 worker QObject on dedicated QThread, queued delivery\n";
+    out << "Batching:     engine " << usa::scanner::ScanEngine::kBatchNodes
+        << " records/batch, UI re-chunk 500 per nodesDiscovered event\n";
+    out << "Allocated:    backend-reported allocation (NTFS AllocationSize /\n";
+    out << "              POSIX st_blocks), never a fixed cluster estimate\n";
+    out << "Threading:    multi-threaded engine pool, serialized callbacks;\n";
+    out << "              Qt bridge on dedicated QThread, queued delivery\n";
     
     out << "--------------------------------------------------------------------------------\n";
     out << "[Result]\n";
