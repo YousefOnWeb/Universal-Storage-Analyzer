@@ -16,6 +16,13 @@ Testing/
 .idea/
 *.exe
 
+# Secrets and signing material must never be committed.
+.env
+*.pem
+*.key
+*.pfx
+*.p12
+
 # Per-scan diagnostic logs (ScanLogger writes under <AppData>/scan-logs;
 # these cover relocated/override outputs).
 scan_*.log
