@@ -40,6 +40,9 @@ public slots:
     // Throttle samples apply straight into the engine (atomics plus the
     // permit condition only): DirectConnection-safe like pause/cancel.
     void applyThrottleSample(const usa::DiskSample& sample);
+    // Runtime options from the dialog (queued like scans): bucket edges
+    // as CSV days, top-N size, throttle master switch.
+    void applyOptions(const QString& ageBucketsCsv, int topN, bool throttleEnabled);
 
 signals:
     void scanStarted(const QString& taskId, const QString& targetPath);

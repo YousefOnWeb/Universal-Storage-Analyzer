@@ -122,6 +122,9 @@ public:
     void setWorkerCap(unsigned n);
     unsigned workerCap() const;
     void applyThrottleSample(const ThrottleInput& sample);
+    // Master switch for disk-driven throttling. Disabling resets the
+    // policy and restores the full pool; enabling just arms it.
+    void setThrottleEnabled(bool enabled);
     // Analytics configuration. Pre-run only (single-flight engine).
     void setAgeBuckets(std::vector<std::uint64_t> days);
     void setTopN(std::size_t n);
@@ -173,6 +176,7 @@ private:
     std::mutex dirsMutex_{}; // guards allDirs_
     std::vector<std::unique_ptr<DirAcc>> allDirs_{};
     ThrottlePolicy throttlePolicy_{};
+    std::atomic_bool throttleEnabled_{true};
     std::atomic_uint workerCap_{kMaxWorkers};
     std::atomic_bool lastThrottleEmitted_{false};
     std::mutex capMutex_{};

@@ -5,6 +5,10 @@
 #include <QtGlobal>
 #include <QVector>
 
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
 // Qt-friendly projection of an engine node for queued signal transport.
 // The engine structs stay Qt-free; conversion happens at the boundary.
 struct FileRecord {
@@ -70,3 +74,23 @@ struct AnalyticsData {
 };
 
 Q_DECLARE_METATYPE(AnalyticsData)
+
+// Bucket i covers [edges[i-1], edges[i]); the last covers [edges.back(),
+// inf). Shared by the worker bridge and the in-memory re-aggregation so
+// both label identically.
+inline QString ageBucketLabel(std::size_t bucket, const std::vector<std::uint64_t>& edges)
+{
+    const auto days = [](std::uint64_t d) {
+        return d == 1 ? QStringLiteral("1 day") : QString::number(d) + QStringLiteral(" days");
+    };
+    if (edges.empty()) {
+        return QStringLiteral("unknown");
+    }
+    if (bucket == 0) {
+        return QStringLiteral("< ") + days(edges.front());
+    }
+    if (bucket < edges.size()) {
+        return days(edges[bucket - 1]) + QStringLiteral(" – ") + days(edges[bucket]);
+    }
+    return QStringLiteral("≥ ") + days(edges.back());
+}

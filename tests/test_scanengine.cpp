@@ -187,6 +187,24 @@ private slots:
         QCOMPARE(engine.workerCap(), 1u);
     }
 
+    void disabledThrottleIgnoresSamples()
+    {
+        ScanEngine engine{};
+        engine.setThrottleEnabled(false);
+        usa::scanner::ThrottleInput bad{};
+        bad.available = true;
+        bad.latencyMs = 500.0;
+        for (int i{0}; i < 10; ++i) {
+            engine.applyThrottleSample(bad);
+        }
+        QCOMPARE(engine.workerCap(), static_cast<unsigned>(ScanEngine::kMaxWorkers));
+        engine.setThrottleEnabled(true);
+        for (int i{0}; i < 3; ++i) {
+            engine.applyThrottleSample(bad);
+        }
+        QCOMPARE(engine.workerCap(), 1u);
+    }
+
     void cancelWhilePausedTerminates()
     {
         QTemporaryDir tmp{};

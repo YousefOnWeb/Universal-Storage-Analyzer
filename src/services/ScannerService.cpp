@@ -46,6 +46,8 @@ ScannerService::ScannerService(QObject* parent)
             &LocalScannerWorker::applyThrottleSample, Qt::DirectConnection);
     connect(this, &ScannerService::telemetryStartRequested, telemetry_,
             &DiskTelemetry::startMonitoring);
+    connect(this, &ScannerService::optionsChanged, worker_,
+            &LocalScannerWorker::applyOptions);
     connect(this, &ScannerService::scanFinished, telemetry_, &DiskTelemetry::stopMonitoring);
 
     thread_->start();
@@ -97,4 +99,9 @@ void ScannerService::cancelScan(const QString& taskId)
         return;
     }
     emit cancelRequested();
+}
+
+void ScannerService::applyOptions(const QString& ageBucketsCsv, int topN, bool throttleEnabled)
+{
+    emit optionsChanged(ageBucketsCsv, topN, throttleEnabled);
 }

@@ -11,28 +11,6 @@
 using usa::scanner::EngineDirSummary;
 using usa::scanner::EngineNode;
 
-namespace {
-
-// Bucket i covers [edges[i-1], edges[i]); the last covers [edges.back(), inf).
-QString ageBucketLabel(std::size_t bucket, const std::vector<std::uint64_t>& edges)
-{
-    const auto days = [](std::uint64_t d) {
-        return d == 1 ? QStringLiteral("1 day") : QString::number(d) + QStringLiteral(" days");
-    };
-    if (edges.empty()) {
-        return QStringLiteral("unknown");
-    }
-    if (bucket == 0) {
-        return QStringLiteral("< ") + days(edges.front());
-    }
-    if (bucket < edges.size()) {
-        return days(edges[bucket - 1]) + QStringLiteral(" – ") + days(edges[bucket]);
-    }
-    return QStringLiteral("≥ ") + days(edges.back());
-}
-
-} // namespace
-
 LocalScannerWorker::LocalScannerWorker(QObject* parent)
     : QObject(parent)
 {
@@ -56,6 +34,27 @@ void LocalScannerWorker::applyThrottleSample(const usa::DiskSample& sample)
     in.queueDepth = sample.queueDepth;
     in.activePct = sample.activePct;
     engine_.applyThrottleSample(in);
+}
+
+void LocalScannerWorker::applyOptions(const QString& ageBucketsCsv, int topN,
+                                      bool throttleEnabled)
+{
+    // Lenient parse: the dialog validates, this keeps garbage out.
+    std::vector<std::uint64_t> edges{};
+    for (const QString& part : ageBucketsCsv.split(QStringLiteral(","), Qt::SkipEmptyParts)) {
+        bool ok{false};
+        const std::uint64_t days = part.trimmed().toULongLong(&ok);
+        if (ok && days > 0 && (edges.empty() || days > edges.back())) {
+            edges.push_back(days);
+        }
+    }
+    if (!edges.empty()) {
+        engine_.setAgeBuckets(std::move(edges));
+    }
+    if (topN > 0) {
+        engine_.setTopN(static_cast<std::size_t>(topN));
+    }
+    engine_.setThrottleEnabled(throttleEnabled);
 }
 
 void LocalScannerWorker::startScanPath(const QString& taskId, const QString& targetPath, bool enableLogging)

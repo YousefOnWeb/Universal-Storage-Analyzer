@@ -94,8 +94,20 @@ unsigned ScanEngine::workerCap() const
 
 void ScanEngine::applyThrottleSample(const ThrottleInput& sample)
 {
+    if (!throttleEnabled_.load(std::memory_order_relaxed)) {
+        return;
+    }
     throttlePolicy_.feed(sample);
     setWorkerCap(throttlePolicy_.throttled() ? 1U : kMaxWorkers);
+}
+
+void ScanEngine::setThrottleEnabled(bool enabled)
+{
+    throttleEnabled_.store(enabled, std::memory_order_relaxed);
+    if (!enabled) {
+        throttlePolicy_.reset();
+        setWorkerCap(kMaxWorkers);
+    }
 }
 
 void ScanEngine::waitForPermit(unsigned index)

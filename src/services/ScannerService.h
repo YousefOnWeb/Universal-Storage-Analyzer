@@ -20,12 +20,14 @@ public:
     QString startScan(const QString& targetPath, bool enableLogging = true) override;
     void toggleScanState(const QString& taskId, bool pause) override;
     void cancelScan(const QString& taskId) override;
+    void applyOptions(const QString& ageBucketsCsv, int topN, bool throttleEnabled);
 
 signals:
     void startRequested(const QString& taskId, const QString& targetPath, bool enableLogging);
     void pauseRequested(bool paused);
     void cancelRequested();
     void telemetryStartRequested(const QString& targetPath);
+    void optionsChanged(const QString& ageBucketsCsv, int topN, bool throttleEnabled);
     // Re-emitted worker events for UI consumption:
     void scanStarted(const QString& taskId, const QString& targetPath);
     void nodesDiscovered(const QString& taskId, QVector<FileRecord> batch);
