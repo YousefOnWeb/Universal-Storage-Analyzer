@@ -9,12 +9,18 @@
 
 #include <QDateTime>
 
+#include <cstdio>
+
 #include "../models/FileSystemModel.h"
 #include "../services/DatabaseManager.h"
 #include "../services/ScannerService.h"
 #include "../services/ScanTypes.h"
 #include "../ui/MainWindow.h"
 #include "../ui/ThemeManager.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 static QFile* g_sessionLogFile = nullptr;
 // Intentionally leaked: the handler can fire during static teardown,
@@ -237,6 +243,25 @@ int runGui(QApplication& app)
     return app.exec();
 }
 
+void attachParentConsole()
+{
+#ifdef _WIN32
+    // GUI-subsystem binaries start without a console. When stdout already
+    // flows somewhere (pipe/file inherited from the parent, as in CI log
+    // capture), keep it untouched. Otherwise attach to the parent console
+    // so CLI-mode output is visible in interactive terminals instead of
+    // vanishing; a GUI launch has no console and keeps output dropped.
+    const HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (out != nullptr && out != INVALID_HANDLE_VALUE) {
+        return;
+    }
+    if (AttachConsole(ATTACH_PARENT_PROCESS) != 0) {
+        (void)std::freopen("CONOUT$", "w", stdout);
+        (void)std::freopen("CONOUT$", "w", stderr);
+    }
+#endif
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -255,6 +280,13 @@ int main(int argc, char* argv[])
     QCommandLineParser parser{};
     setupCliParser(parser);
     parser.process(app);
+
+    if (parser.isSet(QStringLiteral("smoke-test"))
+        || parser.isSet(QStringLiteral("headless-check"))
+        || parser.isSet(QStringLiteral("cli-scan"))
+        || parser.isSet(QStringLiteral("reset-test-data"))) {
+        attachParentConsole();
+    }
 
     if (const int resetRc = handleResetOption(parser); resetRc >= 0) {
         return resetRc;
