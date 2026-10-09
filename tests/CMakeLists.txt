@@ -19,6 +19,7 @@ endfunction()
 
 add_usa_test(test_scanner test_scanner.cpp integration)
 add_usa_test(test_blockingqueue test_blockingqueue.cpp unit)
+add_usa_test(test_analytics test_analytics.cpp unit)
 add_usa_test(test_directoryfinder test_directoryfinder.cpp integration)
 add_usa_test(test_mftfinder test_mftfinder.cpp integration)
 add_usa_test(test_scanengine test_scanengine.cpp integration)
