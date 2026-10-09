@@ -4,8 +4,8 @@
 #include <QString>
 #include <QtGlobal>
 
-// Qt-friendly projection of usa::domain::FSNode for queued signal transport.
-// The domain struct itself stays Qt-free; conversion happens at the boundary.
+// Qt-friendly projection of an engine node for queued signal transport.
+// The engine structs stay Qt-free; conversion happens at the boundary.
 struct FileRecord {
     quint32 id{0};
     quint32 parentId{0};

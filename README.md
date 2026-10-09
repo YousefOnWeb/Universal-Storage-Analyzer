@@ -33,7 +33,8 @@ Linux/macOS: install `qt6-base` via your package manager and drop the
 
 ```text
 src/app/        bootstrap (main.cpp, CLI modes, session logging)
-src/domain/     Qt-free business rules (FSNode, FileTree)
+src/domain/     reserved for Qt-free business rules (currently empty:
+                scan state lives in ScanEngine + FileSystemModel)
 src/services/   infrastructure (scan engine, Qt bridge, scan logger, SQLite)
 src/models/     QAbstractItemModel projections (tree + details)
 src/ui/         Widgets rendering (MainWindow, ThemeManager)

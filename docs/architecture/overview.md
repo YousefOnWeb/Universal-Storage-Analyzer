@@ -14,7 +14,8 @@ Scan engine (Qt-free, src/services/scanner/):
         │  BlockingQueue<DirJob> → worker pool (≤16, one Finder each)
         │  node batches (128 / 100 ms) + absolute dir summaries up the chain
         ▼
-Domain (Qt-free): FSNode + FileTree — owned by whoever needs pure logic/tests.
+Domain (Qt-free): reserved for pure business rules; scan state currently
+lives in ScanEngine + FileSystemModel (see data-model.md).
 Infrastructure: QtSql SQLite store (V1 migration), QSettings for prefs.
 ```
 

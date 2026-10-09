@@ -5,7 +5,6 @@ function(add_usa_test name source label)
     # Domain + worker + scanner sources reused without pulling the GUI app.
     # Extra per-test sources may follow the label.
     target_sources(${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/domain/FileTree.cpp
         ${CMAKE_SOURCE_DIR}/src/services/LocalScannerWorker.cpp
         ${CMAKE_SOURCE_DIR}/src/services/ScanLogger.cpp
         ${CMAKE_SOURCE_DIR}/src/services/scanner/DirectoryFinder.cpp
@@ -18,7 +17,6 @@ function(add_usa_test name source label)
     set_tests_properties(${name} PROPERTIES LABELS ${label})
 endfunction()
 
-add_usa_test(test_filetree test_filetree.cpp unit)
 add_usa_test(test_scanner test_scanner.cpp integration)
 add_usa_test(test_blockingqueue test_blockingqueue.cpp unit)
 add_usa_test(test_directoryfinder test_directoryfinder.cpp integration)

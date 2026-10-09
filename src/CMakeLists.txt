@@ -1,6 +1,5 @@
 add_executable(usa
     app/main.cpp
-    domain/FileTree.cpp
     services/IScannerService.cpp
     services/LocalScannerWorker.cpp
     services/ScanLogger.cpp
