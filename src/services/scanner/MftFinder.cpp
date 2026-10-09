@@ -712,7 +712,15 @@ bool MftFinder::open(const std::filesystem::path& dir, std::uint64_t tokenHint)
                 }
             }
             if (!found) {
-                lastError_ = "path component not found in volume index";
+                // Name the missing component: fresh-leaf vs intermediate
+                // failures have different causes (visibility lag vs parse
+                // gaps), and the log must discriminate them.
+                std::string narrow{};
+                narrow.reserve(want.size());
+                for (const wchar_t wc : want) {
+                    narrow.push_back(wc < 0x80 ? static_cast<char>(wc) : '?');
+                }
+                lastError_ = "path component not found in volume index: " + narrow;
                 return false;
             }
         }
