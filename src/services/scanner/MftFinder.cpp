@@ -72,6 +72,7 @@ struct MftFinder::SharedVolume {
     std::wstring drivePrefix{}; // e.g. L"C:"
     DWORD volumeSerial{0}; // GetVolumeInformationW serial: remount/reformat
                            // changes it, invalidating the cached image
+    std::uint64_t loadStartUnix{0}; // system seconds when the image read began
     std::vector<MftRecord> records{};
     std::unordered_map<std::uint32_t, std::size_t> byNumber{};
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> children{};
@@ -79,6 +80,36 @@ struct MftFinder::SharedVolume {
 };
 
 namespace {
+
+constexpr std::uint64_t kFiletimeEpochDiff{116444736000000000ULL}; // 1601 -> 1970, 100ns ticks
+
+std::uint64_t filetimeToUnixSeconds(std::uint64_t filetime)
+{
+    return filetime > kFiletimeEpochDiff ? (filetime - kFiletimeEpochDiff) / 10000000ULL : 0;
+}
+
+std::uint64_t systemUnixNow()
+{
+    FILETIME ft{};
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER u{};
+    u.LowPart = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
+    return filetimeToUnixSeconds(u.QuadPart);
+}
+
+// Last-write time of a path as Unix seconds, or 0 when unstated.
+std::uint64_t pathMtimeUnix(const std::filesystem::path& p)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (GetFileAttributesExW(p.native().c_str(), GetFileExInfoStandard, &fad) == 0) {
+        return 0;
+    }
+    ULARGE_INTEGER u{};
+    u.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+    u.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+    return filetimeToUnixSeconds(u.QuadPart);
+}
 
 bool readBootSector(const std::wstring& volumePath, std::uint64_t& bytesPerSector,
                     std::uint64_t& sectorsPerCluster, std::uint64_t& mftStartLcn,
@@ -347,6 +378,12 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     if (drive.size() < 2 || drive[1] != L':') {
         return fail("not a drive-letter path");
     }
+    // Freshness gate for the cache below: NTFS bumps a directory's mtime
+    // whenever children are created inside it, so a target newer than the
+    // image proves the cached content predates it. A stat failure (0)
+    // keeps the previous trust-the-cache behavior.
+    const std::uint64_t loadStart = systemUnixNow();
+    const std::uint64_t dirMtime = pathMtimeUnix(anyPathOnVolume);
     // Process-wide volume cache: the engine's probe load warms it and all
     // worker instances share the image instead of re-reading the volume.
     // The cache key is the drive letter, so entries are validated against
@@ -370,16 +407,20 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         const auto cached = cache.find(drive);
         if (cached != cache.end()) {
             if (auto shared = cached->second.lock()) {
-                if (currentSerial != 0 && shared->volumeSerial == currentSerial) {
+                const bool sameMount = currentSerial != 0
+                                       && shared->volumeSerial == currentSerial;
+                const bool freshEnough = dirMtime == 0 || dirMtime <= shared->loadStartUnix;
+                if (sameMount && freshEnough) {
                     volume_ = std::move(shared);
                     return true;
                 }
-                cache.erase(cached); // stale mount or unknown serial: reload
+                cache.erase(cached); // stale mount, unknown serial, or newer target: reload
             }
         }
     }
     if (volume_ && volume_->drivePrefix == drive && currentSerial != 0
-        && volume_->volumeSerial == currentSerial) {
+        && volume_->volumeSerial == currentSerial
+        && (dirMtime == 0 || dirMtime <= volume_->loadStartUnix)) {
         return true; // cached
     }
     const std::wstring volumePath = L"\\\\.\\" + drive;
@@ -580,6 +621,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     auto shared = std::make_shared<SharedVolume>();
     shared->drivePrefix = drive;
     shared->volumeSerial = currentSerial;
+    shared->loadStartUnix = loadStart;
     shared->bytesPerCluster = clusterSize;
     for (auto& vec : local) {
         for (auto& rec : vec) {

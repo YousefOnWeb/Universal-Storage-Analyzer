@@ -34,7 +34,9 @@ public:
 
     // Load (or reuse, if already cached) the volume containing the path.
     // Cached images are validated against the live volume serial, so a
-    // remount/reformat between scans triggers a reload.
+    // remount/reformat between scans triggers a reload. A target newer
+    // than the image read also forces a reload, so scans never list a
+    // stale directory tree.
     bool loadVolume(const std::filesystem::path& anyPathOnVolume);
     std::size_t recordCount() const;
     bool volumeLoaded() const;

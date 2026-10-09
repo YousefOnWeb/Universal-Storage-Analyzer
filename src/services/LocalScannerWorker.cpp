@@ -95,6 +95,9 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         qInfo().noquote() << QString::fromStdString(json);
     };
     callbacks.onNotice = [&](const std::string& message) {
+        // Session-logged like telemetry: downgrades must leave a trail
+        // even when no UI/CLI consumer is attached (e.g. test runs).
+        qInfo().noquote() << QString::fromStdString(message);
         emit noticeOccurred(taskId, QString::fromStdString(message));
     };
 
