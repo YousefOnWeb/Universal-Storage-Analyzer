@@ -7,6 +7,7 @@
 #include "../services/ScannerService.h"
 #include "BarWidget.h"
 #include "PieWidget.h"
+#include "../models/TreeFilterProxy.h"
 #include "TreemapWidget.h"
 
 #include <QComboBox>
@@ -53,7 +54,7 @@ private:
     ThemeManager* themes_{nullptr};
 
     QTreeView* tree_{nullptr};
-    QSortFilterProxyModel* treeProxy_{nullptr};
+    TreeFilterProxyModel* treeProxy_{nullptr};
     QTableView* detailsView_{nullptr};
     QSortFilterProxyModel* detailsProxy_{nullptr};
     DetailsTableModel* detailsModel_{nullptr};

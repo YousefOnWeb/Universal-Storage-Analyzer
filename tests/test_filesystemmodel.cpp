@@ -2,6 +2,7 @@
 
 #include "../src/models/DetailsTableModel.h"
 #include "../src/models/FileSystemModel.h"
+#include "../src/models/TreeFilterProxy.h"
 #include "../src/services/ScanTypes.h"
 
 // Regression test for the aggregation contract: the engine owns all
@@ -250,6 +251,51 @@ private slots:
         QCOMPARE(kids[1].logicalSize, static_cast<quint64>(100));
         QVERIFY(model.childEntries(4242).empty());
         QVERIFY(model.childEntries(2).empty()); // files have no children
+    }
+
+    void treeFilterCombinesSearchAndExtension()
+    {
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1.txt");
+        f1.logicalSize = 100;
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 1;
+        f2.name = QStringLiteral("f2.log");
+        f2.logicalSize = 500;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1, f2});
+
+        TreeFilterProxyModel proxy{};
+        proxy.setSourceModel(&model);
+        QCOMPARE(proxy.rowCount(), 2); // unfiltered: D + f1.txt
+
+        // Extension filter: files must match, dirs pass, parents kept.
+        proxy.setExtensionFilter(QStringLiteral(".log"));
+        QCOMPARE(proxy.rowCount(), 1); // D only (kept as f2.log's parent)
+        const QModelIndex dProxy = proxy.index(0, 0);
+        QCOMPARE(proxy.rowCount(dProxy), 1);
+        QCOMPARE(proxy.data(proxy.index(0, 0, dProxy)).toString(), QStringLiteral("f2.log"));
+
+        // Search narrows further; clearing both restores everything.
+        proxy.setSearchText(QStringLiteral("nope"));
+        QCOMPARE(proxy.rowCount(), 0);
+        proxy.setSearchText(QStringLiteral(""));
+        proxy.setExtensionFilter(QStringLiteral(""));
+        QCOMPARE(proxy.rowCount(), 2);
+
+        // Search alone is recursive: nested hit keeps its parent visible.
+        proxy.setSearchText(QStringLiteral("f2"));
+        QCOMPARE(proxy.rowCount(), 1);
+        QCOMPARE(proxy.data(proxy.index(0, 0)).toString(), QStringLiteral("D"));
     }
 };
 

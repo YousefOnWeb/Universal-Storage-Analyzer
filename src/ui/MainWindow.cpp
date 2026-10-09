@@ -64,10 +64,8 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     tree_->setUniformRowHeights(true);
     tree_->setSortingEnabled(true);
 
-    treeProxy_ = new QSortFilterProxyModel(this);
+    treeProxy_ = new TreeFilterProxyModel(this);
     treeProxy_->setSourceModel(model_);
-    treeProxy_->setFilterCaseSensitivity(Qt::CaseInsensitive);
-    treeProxy_->setFilterKeyColumn(0);
     treeProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     tree_->setModel(treeProxy_);
 
@@ -392,7 +390,7 @@ void MainWindow::selectTreeNode(quint32 nodeId)
 
 void MainWindow::onQuickSearchChanged(const QString& text)
 {
-    treeProxy_->setFilterFixedString(text);
+    treeProxy_->setSearchText(text);
     detailsProxy_->setFilterFixedString(text);
 }
 

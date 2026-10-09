@@ -26,7 +26,8 @@ add_usa_test(test_mftfinder test_mftfinder.cpp integration)
 add_usa_test(test_scanengine test_scanengine.cpp integration)
 add_usa_test(test_filesystemmodel test_filesystemmodel.cpp unit
     ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp
-    ${CMAKE_SOURCE_DIR}/src/models/DetailsTableModel.cpp)
+    ${CMAKE_SOURCE_DIR}/src/models/DetailsTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/TreeFilterProxy.cpp)
 add_usa_test(test_utf8 test_utf8.cpp unit)
 add_usa_test(test_pipeline test_pipeline.cpp integration
     ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp
@@ -35,6 +36,7 @@ add_usa_test(test_pipeline test_pipeline.cpp integration
 add_usa_test(test_ui test_ui.cpp ui
     ${CMAKE_SOURCE_DIR}/src/models/FileSystemModel.cpp
     ${CMAKE_SOURCE_DIR}/src/models/DetailsTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/TreeFilterProxy.cpp
     ${CMAKE_SOURCE_DIR}/src/services/IScannerService.cpp
     ${CMAKE_SOURCE_DIR}/src/services/ScannerService.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ThemeManager.cpp
