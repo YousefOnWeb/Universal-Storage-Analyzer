@@ -383,10 +383,16 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
         MftFinder probe{};
         if (!probe.open(root)) {
             backend_ = BackendKind::NativeDirectory;
-            if (callbacks.onError) {
+            if (callbacks.onNotice) {
+                // Downgrade, not a skip: carry the probe's reason so the
+                // log (and any future elevation troubleshooting) names it.
+                std::string detail = probe.lastError();
+                if (!detail.empty()) {
+                    detail = " (" + detail + ")";
+                }
                 std::lock_guard<std::mutex> lock{emitMutex_};
-                callbacks.onError("Direct volume reading unavailable; using native enumeration.",
-                                  false);
+                callbacks.onNotice("Direct volume reading unavailable" + detail
+                                   + "; using native enumeration.");
             }
         }
     }

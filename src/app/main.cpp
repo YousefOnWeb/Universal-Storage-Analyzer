@@ -220,6 +220,11 @@ int runCliScan(QApplication& app, const QCommandLineParser& parser)
                          qCritical() << (fatal ? "CLI Fatal Error:" : "CLI Error:") << err;
                      });
 
+    QObject::connect(&scanner, &ScannerService::noticeOccurred, &app,
+                     [](const QString&, const QString& msg) {
+                         qInfo() << "CLI Notice:" << msg;
+                     });
+
     scanner.startScan(target, enableLog);
     return app.exec();
 }

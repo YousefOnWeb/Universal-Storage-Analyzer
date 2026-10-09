@@ -44,6 +44,9 @@ signals:
     void scanFinished(const QString& taskId, quint64 fileCount, quint64 dirCount,
                       quint64 totalBytes);
     void errorOccurred(const QString& taskId, const QString& message, bool fatal);
+    // Informational notices (backend downgrades): shown transiently, never
+    // collected as skipped items.
+    void noticeOccurred(const QString& taskId, const QString& message);
 
 private:
     usa::scanner::ScanEngine engine_;

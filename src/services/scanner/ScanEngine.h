@@ -66,6 +66,10 @@ struct EngineCallbacks {
     // snapshots (at most ~4/sec engine-wide) plus one final summary.
     // Kept out of the hot path — never per file.
     std::function<void(const std::string&)> onTelemetry{};
+    // Informational notices (backend downgrades, policy decisions): NOT
+    // errors. They must never enter the error channel, where the UI would
+    // collect them as skipped directories.
+    std::function<void(const std::string&)> onNotice{};
     // Analytics snapshots (extensions, top files, age buckets, owners):
     // absolute replace-semantics values, live at most ~1/sec plus one
     // exact final after the sweep. Empty when the consumer wants none.

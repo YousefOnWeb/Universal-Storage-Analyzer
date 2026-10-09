@@ -199,6 +199,10 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
                     ++skippedOverflow_;
                 }
             });
+    // Notices (backend downgrades) are transient status text: they are
+    // neither fatal nor skipped directories.
+    connect(scanner_, &ScannerService::noticeOccurred, this,
+            [this](const QString&, const QString& msg) { statusLabel_->setText(msg); });
 
     // Expert keyboard paths: Ctrl+L focuses the target box (browser-style
     // location shortcut). Ctrl+O/Ctrl+F live on their menu actions above.

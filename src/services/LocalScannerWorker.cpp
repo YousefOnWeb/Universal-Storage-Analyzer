@@ -94,6 +94,9 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     callbacks.onTelemetry = [&](const std::string& json) {
         qInfo().noquote() << QString::fromStdString(json);
     };
+    callbacks.onNotice = [&](const std::string& message) {
+        emit noticeOccurred(taskId, QString::fromStdString(message));
+    };
 
     const usa::scanner::EngineResult result =
         engine_.run(root, callbacks, taskId.toUtf8().toStdString());

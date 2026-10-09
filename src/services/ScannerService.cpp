@@ -30,6 +30,8 @@ ScannerService::ScannerService(QObject* parent)
             Qt::QueuedConnection);
     connect(worker_, &LocalScannerWorker::errorOccurred, this, &ScannerService::errorOccurred,
             Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::noticeOccurred, this, &ScannerService::noticeOccurred,
+            Qt::QueuedConnection);
 
     thread_->start();
 }
