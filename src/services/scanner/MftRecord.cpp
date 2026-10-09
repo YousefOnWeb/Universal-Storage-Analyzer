@@ -197,7 +197,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
 
                 if (fnNameLen > 0
                     && nameOff + static_cast<std::size_t>(fnNameLen) * 2 <= recordSize
-                    && (!haveName || (haveDosName && !dosAlias))) {
+                    && !haveName) {
                     rec.parentNumber = parentNum;
                     rec.parentSequence = parentSeq;
                     rec.logicalSize = realSize;
