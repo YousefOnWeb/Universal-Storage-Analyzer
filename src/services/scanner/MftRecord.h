@@ -30,6 +30,11 @@ struct MftRecord {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};
     std::uint64_t lastWriteTs{0}; // Unix seconds
+    // Unnamed-default-stream extents for the stale-filename fallback (see
+    // parseMftRecord): resident content length and non-resident real size.
+    std::uint64_t unnamedResidentBytes{0};
+    std::uint64_t unnamedDataRealSize{0};
+    bool hasUnnamedData{false};
 };
 
 std::uint64_t filetimeToUnix(std::uint64_t filetime);

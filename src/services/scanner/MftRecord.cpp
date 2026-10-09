@@ -206,12 +206,25 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
             }
         } else if (type == 0x80) { // $DATA (both unnamed and named, like WofCompressedData)
             hasAnyData = true;
+            // MS-FSCC 2.1.7 $DATA: name length at +9 distinguishes the
+            // default (unnamed) stream from alternate streams.
+            const bool unnamed = p[off + 9] == 0;
             if (!nonResident) {
-                rec.residentBytes += readU32(p + off + 16); // resident content
+                const std::uint32_t residentLen = readU32(p + off + 16); // resident content
+                rec.residentBytes += residentLen;
+                if (unnamed) {
+                    rec.unnamedResidentBytes += residentLen;
+                    rec.hasUnnamedData = true;
+                }
             } else {
                 const std::uint16_t runOff = readU16(p + off + 32);
                 const std::uint64_t allocSize = readU64(p + off + 40);
                 const std::uint64_t compSize = readU64(p + off + 64);
+                if (unnamed) {
+                    // MS-FSCC non-resident header: real size at +48.
+                    rec.unnamedDataRealSize = readU64(p + off + 48);
+                    rec.hasUnnamedData = true;
+                }
                 if ((attrFlags & 0x1) != 0) {
                     // compressed non-resident stream
                     rec.residentBytes += compSize > 0 ? compSize : allocSize;
@@ -242,6 +255,17 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
         rec.usesClusterMath = false;
     } else {
         rec.usesClusterMath = true;
+    }
+
+    if (rec.logicalSize == 0 && rec.unnamedResidentBytes > 0) {
+        // Stale $FILE_NAME size on freshly written files: the resident
+        // content length is exact and current (observed live: realSize 0
+        // with 48 resident bytes on a 48-byte file). $FILE_NAME stays
+        // authoritative whenever it is nonzero (see fixture: 12345 wins
+        // over 12 resident bytes).
+        rec.logicalSize = rec.unnamedResidentBytes;
+    } else if (rec.logicalSize == 0 && rec.hasUnnamedData && rec.unnamedDataRealSize > 0) {
+        rec.logicalSize = rec.unnamedDataRealSize;
     }
 
     return haveName;

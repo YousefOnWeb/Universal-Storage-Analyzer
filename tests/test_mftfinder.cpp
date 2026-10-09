@@ -127,6 +127,7 @@ void patchNonResidentData(std::vector<unsigned char>& buf, bool compressed, std:
     if (compressed) {
         putU64(buf, 290, compSize);
     }
+    putU64(buf, 274, 5000); // $DATA real size (attr + 48)
     buf[r + 0] = 0x11;
     buf[r + 1] = 3;
     buf[r + 2] = 100; // run 1: data
@@ -204,6 +205,28 @@ private slots:
         QVERIFY(rec.usesClusterMath);
         QCOMPARE(rec.residentBytes, static_cast<std::uint64_t>(500));
         QCOMPARE(rec.nonResidentClusters, static_cast<std::uint64_t>(0));
+    }
+
+    void fallsBackToDataLengthWhenFileNameSizeIsStale()
+    {
+        // Observed live: a freshly written 48-byte file whose $FILE_NAME
+        // real size still reads 0 while the resident $DATA holds 48 bytes.
+        // $FILE_NAME stays authoritative whenever nonzero.
+        auto resident = makeFileRecord();
+        putU64(resident, 200, 0); // $FILE_NAME real size ($FILE_NAME @128 + 24 + 48)
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(resident.data(), resident.size(), 42,
+                                                     rec));
+        QCOMPARE(rec.name, std::wstring{L"test"});
+        QCOMPARE(rec.logicalSize, static_cast<std::uint64_t>(12)); // resident length
+
+        auto nonresident = makeFileRecord();
+        patchNonResidentData(nonresident, false, 0);
+        putU64(nonresident, 200, 0); // stale $FILE_NAME again
+        usa::scanner::detail::MftRecord rec2{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(nonresident.data(), nonresident.size(),
+                                                     42, rec2));
+        QCOMPARE(rec2.logicalSize, static_cast<std::uint64_t>(5000)); // $DATA real size
     }
 
     void decodesSparseRunsWithZeroLcnField()
