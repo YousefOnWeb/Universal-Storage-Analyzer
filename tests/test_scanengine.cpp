@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 
+#include "../src/services/scanner/MftFinder.h"
 #include "../src/services/scanner/ScanEngine.h"
 
 using usa::scanner::EngineDirSummary;
@@ -71,8 +72,12 @@ private slots:
         QCOMPARE(result.dirCount, static_cast<std::uint64_t>(2));
         QCOMPARE(result.totalBytes, static_cast<std::uint64_t>(600));
         QVERIFY(!result.cancelled);
-        // Portable backend on every OS (direct volume reading is opt-in).
-        QCOMPARE(result.backend, usa::scanner::BackendKind::NativeDirectory);
+        // Backend follows the OS gate: native where direct reading is
+        // unavailable, direct where it is (elevated NTFS). Totals hold on
+        // both paths; where the gate is closed the backend is pinned.
+        if (!usa::scanner::isDirectScanAvailable(root)) {
+            QCOMPARE(result.backend, usa::scanner::BackendKind::NativeDirectory);
+        }
         QVERIFY(out.batches.load() >= 1);
 
         // 3 files + 2 directories; ids unique; parents resolve.
@@ -198,12 +203,16 @@ private slots:
         QCOMPARE(result.fileCount, static_cast<std::uint64_t>(3));
         QVERIFY(!telemetry.empty()); // at minimum the final summary always fires
 
-        // The final summary carries the scan id and exact totals.
+        // The final summary carries the scan id and exact totals, and its
+        // backend tag matches the backend the run actually used.
         const std::string& last = telemetry.back();
+        const std::string backendStr =
+            (result.backend == usa::scanner::BackendKind::DirectMft) ? "DirectMft"
+                                                                     : "NativeDirectory";
         QVERIFY(last.find("\"scan_id\":\"t9\"") != std::string::npos);
         QVERIFY(last.find("\"files\":3") != std::string::npos);
-        QVERIFY(last.find("\"backend\":\"NativeDirectory\"") != std::string::npos);
-        QVERIFY(last.find("ScanEngine/NativeDirectory/final") != std::string::npos);
+        QVERIFY(last.find("\"backend\":\"" + backendStr + "\"") != std::string::npos);
+        QVERIFY(last.find("ScanEngine/" + backendStr + "/final") != std::string::npos);
         QVERIFY(last.find("\"timestamp\":\"") != std::string::npos);
     }
 
