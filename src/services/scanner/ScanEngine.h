@@ -77,6 +77,10 @@ struct EngineCallbacks {
 // propagates them up the ancestor chain itself (atomics for globals,
 // mutex-guarded maps for the tree). Consumers store exactly what they are
 // given. run() blocks until the scan finishes or is cancelled.
+//
+// Single-flight: one run() at a time per instance. Concurrent runs would
+// share the queue, accumulators, and directory maps; the Qt bridge guards
+// this with a single-flight check (see LocalScannerWorker).
 class ScanEngine {
 public:
     static constexpr std::size_t kBatchNodes{128};

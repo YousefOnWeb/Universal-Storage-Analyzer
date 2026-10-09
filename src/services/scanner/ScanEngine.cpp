@@ -372,7 +372,8 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     result.totalBytes = totalBytes_.load(std::memory_order_relaxed);
     result.backend = backend_;
     result.cancelled = userCancelled_.load(std::memory_order_relaxed);
-    result.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    result.durationMs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count());
     result.batchCount = batchCount_.load(std::memory_order_relaxed);
     result.errorCount = errorCount_.load(std::memory_order_relaxed);
     emitTelemetry(callbacks, "final");

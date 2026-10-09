@@ -138,6 +138,105 @@ int runHeadlessCheck()
     return ok ? 0 : 2;
 }
 
+void setupCliParser(QCommandLineParser& parser)
+{
+    parser.addHelpOption();
+    parser.addVersionOption();
+    parser.addOptions({
+        QCommandLineOption{QStringLiteral("smoke-test"),
+                           QStringLiteral("Init services and exit 0 when ready.")},
+        QCommandLineOption{QStringLiteral("headless-check"),
+                           QStringLiteral("Validate config/db/resources.")},
+        QCommandLineOption{
+            QStringLiteral("reset-test-data"),
+            QStringLiteral(
+                "Clear test database (test builds / UNIVERSAL_STORAGE_ANALYZER_TEST=1 only).")},
+        QCommandLineOption{QStringLiteral("cli-scan"),
+                           QStringLiteral("Run scan in CLI mode without GUI."),
+                           QStringLiteral("folder")},
+        QCommandLineOption{QStringLiteral("no-log"),
+                           QStringLiteral("Disable writing scan diagnostic log files.")},
+    });
+    parser.addPositionalArgument(QStringLiteral("target"),
+                                 QStringLiteral("Folder to scan on launch."),
+                                 QStringLiteral("[folder]"));
+}
+
+// Returns an exit code, or -1 to continue into GUI/CLI dispatch.
+int handleResetOption(const QCommandLineParser& parser)
+{
+    if (!parser.isSet(QStringLiteral("reset-test-data"))) {
+        return -1;
+    }
+    if (qEnvironmentVariableIsSet("UNIVERSAL_STORAGE_ANALYZER_TEST")) {
+        QSqlDatabase::removeDatabase(QStringLiteral("usa-settings"));
+        const QString base =
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        QFile::remove(base + QStringLiteral("/universal-storage-analyzer.db"));
+        QTextStream{stdout} << "Test data reset.\n";
+        return 0;
+    }
+    QTextStream{stderr} << "--reset-test-data requires "
+                           "UNIVERSAL_STORAGE_ANALYZER_TEST=1\n";
+    return 3;
+}
+
+int runCliScan(QApplication& app, const QCommandLineParser& parser)
+{
+    app.setQuitOnLastWindowClosed(false);
+    ScannerService scanner{};
+    const QString target = parser.value(QStringLiteral("cli-scan"));
+    const bool enableLog = !parser.isSet(QStringLiteral("no-log"));
+
+    QTextStream out(stdout);
+    out << "Starting CLI scan for: " << target << "\n";
+    if (enableLog) {
+        out << "Diagnostic logging is enabled.\n";
+    } else {
+        out << "Diagnostic logging is disabled.\n";
+    }
+
+    QObject::connect(&scanner, &ScannerService::scanProgress, &app,
+                     [&out](const QString&, const QString& path) {
+                         out << "Scanning: " << path << "\n";
+                         out.flush();
+                     });
+
+    QObject::connect(&scanner, &ScannerService::scanFinished, &app,
+                     [&app](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
+                         qInfo() << "CLI Scan finished. Files:" << files << "Dirs:" << dirs
+                                 << "Bytes:" << bytes;
+                         app.quit();
+                     });
+
+    QObject::connect(&scanner, &ScannerService::errorOccurred, &app,
+                     [](const QString&, const QString& err, bool fatal) {
+                         qCritical() << (fatal ? "CLI Fatal Error:" : "CLI Error:") << err;
+                     });
+
+    scanner.startScan(target, enableLog);
+    return app.exec();
+}
+
+int runGui(QApplication& app)
+{
+    ThemeManager themes{&app};
+    FileSystemModel model{};
+    ScannerService scanner{};
+
+    // Async bridging: queued connections keep the GUI thread responsive.
+    QObject::connect(&scanner, &ScannerService::nodesDiscovered, &model,
+                     &FileSystemModel::onNodesDiscovered, Qt::QueuedConnection);
+    QObject::connect(&scanner, &ScannerService::branchMetricsUpdated, &model,
+                     &FileSystemModel::onBranchMetricsUpdated, Qt::QueuedConnection);
+    QObject::connect(&scanner, &ScannerService::scanStarted, &model,
+                     &FileSystemModel::onScanStarted, Qt::QueuedConnection);
+
+    MainWindow win{&model, &scanner, &themes};
+    win.show();
+    return app.exec();
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -154,41 +253,11 @@ int main(int argc, char* argv[])
     qRegisterMetaType<BranchMetrics>("BranchMetrics");
 
     QCommandLineParser parser{};
-    parser.addHelpOption();
-    parser.addVersionOption();
-    QCommandLineOption smokeOpt{QStringLiteral("smoke-test"),
-                                QStringLiteral("Init services and exit 0 when ready.")};
-    QCommandLineOption headlessOpt{QStringLiteral("headless-check"),
-                                   QStringLiteral("Validate config/db/resources.")};
-    QCommandLineOption resetOpt{
-        QStringLiteral("reset-test-data"),
-        QStringLiteral("Clear test database (test builds / UNIVERSAL_STORAGE_ANALYZER_TEST=1 only).")};
-    QCommandLineOption cliScanOpt{
-        QStringLiteral("cli-scan"),
-        QStringLiteral("Run scan in CLI mode without GUI."),
-        QStringLiteral("folder")};
-    QCommandLineOption noLogOpt{
-        QStringLiteral("no-log"),
-        QStringLiteral("Disable writing scan diagnostic log files.")};
-
-    parser.addOptions({smokeOpt, headlessOpt, resetOpt, cliScanOpt, noLogOpt});
-    parser.addPositionalArgument(QStringLiteral("target"),
-                                 QStringLiteral("Folder to scan on launch."),
-                                 QStringLiteral("[folder]"));
+    setupCliParser(parser);
     parser.process(app);
 
-    if (parser.isSet(resetOpt)) {
-        if (qEnvironmentVariableIsSet("UNIVERSAL_STORAGE_ANALYZER_TEST")) {
-            QSqlDatabase::removeDatabase(QStringLiteral("usa-settings"));
-            const QString base =
-                QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-            QFile::remove(base + QStringLiteral("/universal-storage-analyzer.db"));
-            QTextStream{stdout} << "Test data reset.\n";
-            return 0;
-        }
-        QTextStream{stderr} << "--reset-test-data requires "
-                               "UNIVERSAL_STORAGE_ANALYZER_TEST=1\n";
-        return 3;
+    if (const int resetRc = handleResetOption(parser); resetRc >= 0) {
+        return resetRc;
     }
 
     DatabaseManager db{};
@@ -198,56 +267,16 @@ int main(int argc, char* argv[])
         return 4;
     }
 
-    if (parser.isSet(smokeOpt)) {
+    if (parser.isSet(QStringLiteral("smoke-test"))) {
         return runSmokeTest();
     }
-    if (parser.isSet(headlessOpt)) {
+    if (parser.isSet(QStringLiteral("headless-check"))) {
         return runHeadlessCheck();
     }
 
-    if (parser.isSet(cliScanOpt)) {
-        app.setQuitOnLastWindowClosed(false);
-        ScannerService scanner{};
-        QString target = parser.value(cliScanOpt);
-        bool enableLog = !parser.isSet(noLogOpt);
-        
-        QTextStream out(stdout);
-        out << "Starting CLI scan for: " << target << "\n";
-        if (enableLog) out << "Diagnostic logging is enabled.\n";
-        else out << "Diagnostic logging is disabled.\n";
-        
-        QObject::connect(&scanner, &ScannerService::scanProgress, &app, [&out](const QString&, const QString& path) {
-            out << "Scanning: " << path << "\n";
-            out.flush();
-        });
-        
-        QObject::connect(&scanner, &ScannerService::scanFinished, &app, [&app](const QString&, quint64 files, quint64 dirs, quint64 bytes) {
-            qInfo() << "CLI Scan finished. Files:" << files << "Dirs:" << dirs << "Bytes:" << bytes;
-            app.quit();
-        });
-        
-        QObject::connect(&scanner, &ScannerService::errorOccurred, &app, [](const QString&, const QString& err, bool fatal) {
-            qCritical() << (fatal ? "CLI Fatal Error:" : "CLI Error:") << err;
-        });
-
-        scanner.startScan(target, enableLog);
-        return app.exec();
+    if (parser.isSet(QStringLiteral("cli-scan"))) {
+        return runCliScan(app, parser);
     }
 
-    ThemeManager themes{&app};
-    FileSystemModel model{};
-    ScannerService scanner{};
-
-    // Async bridging: queued connections keep the GUI thread responsive.
-    QObject::connect(&scanner, &ScannerService::nodesDiscovered, &model,
-                     &FileSystemModel::onNodesDiscovered, Qt::QueuedConnection);
-    QObject::connect(&scanner, &ScannerService::branchMetricsUpdated, &model,
-                     &FileSystemModel::onBranchMetricsUpdated, Qt::QueuedConnection);
-    QObject::connect(&scanner, &ScannerService::scanStarted, &model,
-                     &FileSystemModel::onScanStarted, Qt::QueuedConnection);
-
-    MainWindow win{&model, &scanner, &themes};
-    win.show();
-    const int rc = app.exec();
-    return rc;
+    return runGui(app);
 }
