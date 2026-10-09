@@ -2,15 +2,16 @@
 #include "MftRecord.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <cwchar>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <atomic>
 
 #ifdef _WIN32
 
@@ -48,6 +49,18 @@ struct RaiiHandle {
     }
 };
 
+// VirtualAlloc/VirtualFree pairing as RAII: every early return below must
+// release the image, which manual pairing cannot guarantee.
+struct VirtualFreeDeleter {
+    void operator()(void* p) const noexcept
+    {
+        if (p != nullptr) {
+            VirtualFree(p, 0, MEM_RELEASE);
+        }
+    }
+};
+using VirtualImage = std::unique_ptr<void, VirtualFreeDeleter>;
+
 int compareNoCase(const std::wstring& a, const std::wstring& b)
 {
     return _wcsicmp(a.c_str(), b.c_str());
@@ -57,6 +70,8 @@ int compareNoCase(const std::wstring& a, const std::wstring& b)
 
 struct MftFinder::SharedVolume {
     std::wstring drivePrefix{}; // e.g. L"C:"
+    DWORD volumeSerial{0}; // GetVolumeInformationW serial: remount/reformat
+                           // changes it, invalidating the cached image
     std::vector<MftRecord> records{};
     std::unordered_map<std::uint32_t, std::size_t> byNumber{};
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> children{};
@@ -334,8 +349,20 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
     // Process-wide volume cache: the engine's probe load warms it and all
     // worker instances share the image instead of re-reading the volume.
-    // Volumes are effectively immutable during a scan; a rescan reloads
-    // only when the weak reference has expired.
+    // The cache key is the drive letter, so entries are validated against
+    // the live volume serial: a remount/reformat/USB-swap changes the
+    // serial and the stale image is reloaded. Volumes are effectively
+    // immutable during a scan; a rescan reloads only when the weak
+    // reference has expired or the serial differs.
+    DWORD currentSerial{0};
+    {
+        std::wstring volRoot = anyPathOnVolume.root_path().native();
+        if (!volRoot.empty() && volRoot.back() != L'\\') {
+            volRoot += L'\\';
+        }
+        GetVolumeInformationW(volRoot.c_str(), nullptr, 0, &currentSerial, nullptr, nullptr,
+                              nullptr, 0);
+    }
     static std::mutex cacheMutex{};
     static std::unordered_map<std::wstring, std::weak_ptr<SharedVolume>> cache{};
     {
@@ -343,12 +370,16 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         const auto cached = cache.find(drive);
         if (cached != cache.end()) {
             if (auto shared = cached->second.lock()) {
-                volume_ = std::move(shared);
-                return true;
+                if (currentSerial != 0 && shared->volumeSerial == currentSerial) {
+                    volume_ = std::move(shared);
+                    return true;
+                }
+                cache.erase(cached); // stale mount or unknown serial: reload
             }
         }
     }
-    if (volume_ && volume_->drivePrefix == drive) {
+    if (volume_ && volume_->drivePrefix == drive && currentSerial != 0
+        && volume_->volumeSerial == currentSerial) {
         return true; // cached
     }
     const std::wstring volumePath = L"\\\\.\\" + drive;
@@ -396,20 +427,27 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
         // stay zero and parse-skipped via bad magic.
         imageEnd = (std::max)(imageEnd, e.fileOffset + e.length);
     }
-    if (imageEnd == 0 || imageEnd > kMaxVolumeBytes || imageEnd % recordSize != 0) {
+    if (imageEnd == 0 || imageEnd % recordSize != 0) {
         return fail("implausible MFT size");
+    }
+    if (imageEnd > kMaxVolumeBytes) {
+        // Not an error code situation: the volume is fine, the image just
+        // exceeds the 2 GiB cap. Report plainly; the engine falls back to
+        // native enumeration.
+        lastError_ = "MFT image exceeds 2 GiB cap; using native enumeration";
+        return false;
     }
     if (mftValidLength > 0 && imageEnd < mftValidLength) {
         return fail("truncated extent walk (below valid data length)");
     }
 
     // High-performance asynchronous MFT reading via multiple threads and OVERLAPPED I/O.
-    void* raw = VirtualAlloc(nullptr, static_cast<SIZE_T>(imageEnd), MEM_COMMIT | MEM_RESERVE,
-                             PAGE_READWRITE);
-    if (raw == nullptr) {
+    VirtualImage imageMem{VirtualAlloc(nullptr, static_cast<SIZE_T>(imageEnd),
+                                       MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)};
+    if (!imageMem) {
         return fail("image allocation (VirtualAlloc)");
     }
-    unsigned char* image = static_cast<unsigned char*>(raw);
+    unsigned char* image = static_cast<unsigned char*>(imageMem.get());
 
     struct ReadTask {
         std::uint64_t diskOffset;
@@ -430,7 +468,6 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
                                     FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                                     FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING, nullptr)};
     if (asyncVol.h == INVALID_HANDLE_VALUE) {
-        VirtualFree(raw, 0, MEM_RELEASE);
         return fail("async volume open");
     }
 
@@ -508,7 +545,6 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
 
     if (readFailed.load()) {
-        VirtualFree(raw, 0, MEM_RELEASE);
         lastError_ = readErrorMsg;
         return false;
     }
@@ -540,10 +576,10 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     for (auto& w : workers) {
         w.join();
     }
-    VirtualFree(raw, 0, MEM_RELEASE);
 
     auto shared = std::make_shared<SharedVolume>();
     shared->drivePrefix = drive;
+    shared->volumeSerial = currentSerial;
     shared->bytesPerCluster = clusterSize;
     for (auto& vec : local) {
         for (auto& rec : vec) {
