@@ -42,10 +42,6 @@ private:
     LocalScannerWorker* worker_{nullptr};
     QThread* telemetryThread_{nullptr};
     DiskTelemetry* telemetry_{nullptr};
-
-private:
-    QThread* thread_{nullptr};
-    LocalScannerWorker* worker_{nullptr};
     QString activeTaskId_{};
     int taskCounter_{0};
 };
