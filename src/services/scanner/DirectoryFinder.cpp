@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <system_error>
@@ -88,6 +89,17 @@ constexpr LONG kStatusNoMoreFiles{static_cast<LONG>(0x80000006UL)};
 constexpr std::size_t kLocalBufferSize{4 * 1024 * 1024};
 constexpr std::size_t kRemoteBufferSize{64 * 1024};
 
+// Enumeration records are only DWORD-aligned inside the buffer, so member
+// access through the struct pointer is unaligned access (strict UB, breaks
+// under -Wcast-align / ARM). Read every field with memcpy; offsetof keeps
+// the struct declarations as the single source of layout truth.
+template <typename T> T readField(const unsigned char* p)
+{
+    T v{};
+    std::memcpy(&v, p, sizeof(T));
+    return v;
+}
+
 std::uint64_t filetimeToUnix(std::int64_t ft)
 {
     constexpr std::uint64_t kEpochDiff{116444736000000000ULL};
@@ -112,7 +124,13 @@ std::wstring toLongPath(const std::filesystem::path& p)
         return L"\\\\?\\UNC\\" + s.substr(2);
     }
     std::error_code ec{};
-    return toLongPath(std::filesystem::absolute(p, ec));
+    const auto abs = std::filesystem::absolute(p, ec);
+    if (ec || abs == p) {
+        // Unresolvable: return the normalized input instead of recursing
+        // on an identical path (which would overflow the stack).
+        return s;
+    }
+    return toLongPath(abs);
 }
 
 } // namespace
@@ -163,8 +181,9 @@ void DirectoryFinder::close()
         CloseHandle(handle_);
         handle_ = INVALID_HANDLE_VALUE;
     }
+    // Keep the buffer capacity: the next open() reuses it instead of
+    // churning a multi-megabyte allocation per directory.
     buffer_.clear();
-    buffer_.shrink_to_fit();
     offset_ = 0;
     returned_ = 0;
 }
@@ -207,22 +226,34 @@ bool DirectoryFinder::fillCurrent(const unsigned char* record)
     std::uint64_t physical{0};
     std::int64_t writeFt{0};
     ULONG attributes{0};
+    ULONG nameLenBytes{0};
+    std::size_t nameOff{0};
     if (infoClass_ == kFileIdFullDirInfoClass) {
-        const auto* e = reinterpret_cast<const UsaFileIdFullDirInfo*>(record);
-        attributes = e->FileAttributes;
-        logical = static_cast<std::uint64_t>(e->EndOfFile.QuadPart);
-        physical = static_cast<std::uint64_t>(e->AllocationSize.QuadPart);
-        writeFt = static_cast<std::int64_t>(e->LastWriteTime.QuadPart);
-        const std::size_t chars = e->FileNameLength / sizeof(WCHAR);
-        name.assign(e->FileName, chars);
+        attributes = readField<ULONG>(record + offsetof(UsaFileIdFullDirInfo, FileAttributes));
+        logical = static_cast<std::uint64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, EndOfFile)));
+        physical = static_cast<std::uint64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, AllocationSize)));
+        writeFt = static_cast<std::int64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, LastWriteTime)));
+        nameLenBytes =
+            readField<ULONG>(record + offsetof(UsaFileIdFullDirInfo, FileNameLength));
+        nameOff = offsetof(UsaFileIdFullDirInfo, FileName);
     } else {
-        const auto* e = reinterpret_cast<const UsaFileFullDirInfo*>(record);
-        attributes = e->FileAttributes;
-        logical = static_cast<std::uint64_t>(e->EndOfFile.QuadPart);
-        physical = static_cast<std::uint64_t>(e->AllocationSize.QuadPart);
-        writeFt = static_cast<std::int64_t>(e->LastWriteTime.QuadPart);
-        const std::size_t chars = e->FileNameLength / sizeof(WCHAR);
-        name.assign(e->FileName, chars);
+        attributes = readField<ULONG>(record + offsetof(UsaFileFullDirInfo, FileAttributes));
+        logical = static_cast<std::uint64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, EndOfFile)));
+        physical = static_cast<std::uint64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, AllocationSize)));
+        writeFt = static_cast<std::int64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, LastWriteTime)));
+        nameLenBytes = readField<ULONG>(record + offsetof(UsaFileFullDirInfo, FileNameLength));
+        nameOff = offsetof(UsaFileFullDirInfo, FileName);
+    }
+    const std::size_t chars = nameLenBytes / sizeof(WCHAR);
+    name.resize(chars);
+    if (chars > 0) {
+        std::memcpy(name.data(), record + nameOff, chars * sizeof(WCHAR));
     }
     if (name == L"." || name == L"..") {
         return false;
@@ -255,9 +286,9 @@ bool DirectoryFinder::findNext()
         const unsigned char* record = buffer_.data() + offset_;
         ULONG next{0};
         if (infoClass_ == kFileIdFullDirInfoClass) {
-            next = reinterpret_cast<const UsaFileIdFullDirInfo*>(record)->NextEntryOffset;
+            next = readField<ULONG>(record + offsetof(UsaFileIdFullDirInfo, NextEntryOffset));
         } else {
-            next = reinterpret_cast<const UsaFileFullDirInfo*>(record)->NextEntryOffset;
+            next = readField<ULONG>(record + offsetof(UsaFileFullDirInfo, NextEntryOffset));
         }
         const bool usable = fillCurrent(record);
         offset_ = (next == 0) ? returned_ : offset_ + next;

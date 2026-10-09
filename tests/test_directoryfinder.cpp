@@ -84,6 +84,32 @@ private slots:
         QVERIFY(!finder.lastError().empty());
     }
 
+    void opensRelativePaths()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        std::filesystem::create_directory(root / "sub");
+        writeBytes(root / "sub" / "b.bin", 10, 'y');
+
+        // A relative path exercises the long-path normalization fallback
+        // (relative -> absolute -> \\?\ prefix) instead of recursing.
+        const auto saved = std::filesystem::current_path();
+        std::error_code ec{};
+        std::filesystem::current_path(root, ec);
+        QVERIFY(!ec);
+        DirectoryFinder finder{};
+        const bool opened = finder.open(std::filesystem::path{"sub"});
+        std::filesystem::current_path(saved, ec);
+        QVERIFY(opened);
+        std::vector<DirEntry> entries{};
+        while (finder.findNext()) {
+            entries.push_back(finder.current());
+        }
+        QCOMPARE(entries.size(), static_cast<std::size_t>(1));
+        QCOMPARE(entries.front().logicalSize, static_cast<std::uint64_t>(10));
+    }
+
     void marksSymlinkAsReparsePoint()
     {
         QTemporaryDir tmp{};
