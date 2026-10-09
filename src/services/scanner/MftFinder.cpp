@@ -72,7 +72,7 @@ struct MftFinder::SharedVolume {
     std::wstring drivePrefix{}; // e.g. L"C:"
     DWORD volumeSerial{0}; // GetVolumeInformationW serial: remount/reformat
                            // changes it, invalidating the cached image
-    std::uint64_t loadStartUnix{0}; // system seconds when the image read began
+    std::uint64_t loadStartTicks{0}; // 100ns FILETIME ticks when the image read began
     std::vector<MftRecord> records{};
     std::unordered_map<std::uint32_t, std::size_t> byNumber{};
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> children{};
@@ -81,34 +81,31 @@ struct MftFinder::SharedVolume {
 
 namespace {
 
-constexpr std::uint64_t kFiletimeEpochDiff{116444736000000000ULL}; // 1601 -> 1970, 100ns ticks
-
-std::uint64_t filetimeToUnixSeconds(std::uint64_t filetime)
+std::uint64_t filetimeTicks(const FILETIME& ft)
 {
-    return filetime > kFiletimeEpochDiff ? (filetime - kFiletimeEpochDiff) / 10000000ULL : 0;
-}
-
-std::uint64_t systemUnixNow()
-{
-    FILETIME ft{};
-    GetSystemTimeAsFileTime(&ft);
     ULARGE_INTEGER u{};
     u.LowPart = ft.dwLowDateTime;
     u.HighPart = ft.dwHighDateTime;
-    return filetimeToUnixSeconds(u.QuadPart);
+    return u.QuadPart;
 }
 
-// Last-write time of a path as Unix seconds, or 0 when unstated.
-std::uint64_t pathMtimeUnix(const std::filesystem::path& p)
+std::uint64_t systemNowTicks()
+{
+    FILETIME ft{};
+    GetSystemTimeAsFileTime(&ft);
+    return filetimeTicks(ft);
+}
+
+// Last-write time of a path in native 100ns ticks, or 0 when unstated.
+// Compared tick-for-tick (never truncated to seconds) so a change inside
+// the same second as the image read still forces a reload.
+std::uint64_t pathMtimeTicks(const std::filesystem::path& p)
 {
     WIN32_FILE_ATTRIBUTE_DATA fad{};
     if (GetFileAttributesExW(p.native().c_str(), GetFileExInfoStandard, &fad) == 0) {
         return 0;
     }
-    ULARGE_INTEGER u{};
-    u.LowPart = fad.ftLastWriteTime.dwLowDateTime;
-    u.HighPart = fad.ftLastWriteTime.dwHighDateTime;
-    return filetimeToUnixSeconds(u.QuadPart);
+    return filetimeTicks(fad.ftLastWriteTime);
 }
 
 bool readBootSector(const std::wstring& volumePath, std::uint64_t& bytesPerSector,
@@ -380,10 +377,11 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
     // Freshness gate for the cache below: NTFS bumps a directory's mtime
     // whenever children are created inside it, so a target newer than the
-    // image proves the cached content predates it. A stat failure (0)
-    // keeps the previous trust-the-cache behavior.
-    const std::uint64_t loadStart = systemUnixNow();
-    const std::uint64_t dirMtime = pathMtimeUnix(anyPathOnVolume);
+    // image proves the cached content predates it. Compared in native
+    // 100ns ticks (no second-truncation race). A stat failure (0) keeps
+    // the previous trust-the-cache behavior.
+    const std::uint64_t loadStart = systemNowTicks();
+    const std::uint64_t dirMtime = pathMtimeTicks(anyPathOnVolume);
     // Process-wide volume cache: the engine's probe load warms it and all
     // worker instances share the image instead of re-reading the volume.
     // The cache key is the drive letter, so entries are validated against
@@ -409,7 +407,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
             if (auto shared = cached->second.lock()) {
                 const bool sameMount = currentSerial != 0
                                        && shared->volumeSerial == currentSerial;
-                const bool freshEnough = dirMtime == 0 || dirMtime <= shared->loadStartUnix;
+                const bool freshEnough = dirMtime == 0 || dirMtime <= shared->loadStartTicks;
                 if (sameMount && freshEnough) {
                     volume_ = std::move(shared);
                     return true;
@@ -420,7 +418,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     }
     if (volume_ && volume_->drivePrefix == drive && currentSerial != 0
         && volume_->volumeSerial == currentSerial
-        && (dirMtime == 0 || dirMtime <= volume_->loadStartUnix)) {
+        && (dirMtime == 0 || dirMtime <= volume_->loadStartTicks)) {
         return true; // cached
     }
     const std::wstring volumePath = L"\\\\.\\" + drive;
@@ -621,7 +619,7 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     auto shared = std::make_shared<SharedVolume>();
     shared->drivePrefix = drive;
     shared->volumeSerial = currentSerial;
-    shared->loadStartUnix = loadStart;
+    shared->loadStartTicks = loadStart;
     shared->bytesPerCluster = clusterSize;
     for (auto& vec : local) {
         for (auto& rec : vec) {
