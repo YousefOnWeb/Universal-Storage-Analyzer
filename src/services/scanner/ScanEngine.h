@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BlockingQueue.h"
+#include "Analytics.h"
 #include "DirectoryFinder.h"
 #include "Finder.h"
 #include "MftFinder.h"
@@ -65,6 +66,10 @@ struct EngineCallbacks {
     // snapshots (at most ~4/sec engine-wide) plus one final summary.
     // Kept out of the hot path — never per file.
     std::function<void(const std::string&)> onTelemetry{};
+    // Analytics snapshots (extensions, top files, age buckets, owners):
+    // absolute replace-semantics values, live at most ~1/sec plus one
+    // exact final after the sweep. Empty when the consumer wants none.
+    std::function<void(const AnalyticsSnapshot&)> onAnalytics{};
 };
 
 // Multi-threaded scan orchestrator (Qt-free).
@@ -102,6 +107,9 @@ public:
     // invoke them with a direct connection (no event-loop round trip).
     void setPaused(bool paused);
     void requestCancel();
+    // Analytics configuration. Pre-run only (single-flight engine).
+    void setAgeBuckets(std::vector<std::uint64_t> days);
+    void setTopN(std::size_t n);
 
 private:
     struct DirAcc {
@@ -127,8 +135,10 @@ private:
     void emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc);
     void emitSweep(const EngineCallbacks& callbacks);
     void emitTelemetry(const EngineCallbacks& callbacks, const char* phase);
+    void emitAnalytics(const EngineCallbacks& callbacks);
 
     BlockingQueue<DirJob> queue_{};
+    Analytics analytics_{};
     std::atomic_uint32_t nextId_{1};
     std::atomic_uint64_t fileCount_{0};
     std::atomic_uint64_t dirCount_{0};
@@ -137,8 +147,10 @@ private:
     std::atomic_uint64_t errorCount_{0};
     std::atomic_uint64_t progressTick_{0};
     std::atomic_uint64_t lastTelemetryMs_{0};
+    std::atomic_uint64_t lastAnalyticsMs_{0};
     std::string scanId_{}; // set by run() before workers spawn; read-only after
     std::chrono::steady_clock::time_point runStart_{};
+    std::uint64_t runStartUnix_{0}; // system seconds at run start, for age math
     std::atomic_bool userCancelled_{false};
     BackendKind backend_{BackendKind::NativeDirectory};
     std::mutex emitMutex_{}; // serializes all callback invocations

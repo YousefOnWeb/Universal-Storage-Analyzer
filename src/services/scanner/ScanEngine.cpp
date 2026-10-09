@@ -74,6 +74,16 @@ void ScanEngine::requestCancel()
     queue_.requestCancel();
 }
 
+void ScanEngine::setAgeBuckets(std::vector<std::uint64_t> days)
+{
+    analytics_.setAgeBuckets(std::move(days));
+}
+
+void ScanEngine::setTopN(std::size_t n)
+{
+    analytics_.setTopN(n);
+}
+
 std::unique_ptr<Finder> ScanEngine::makeFinder()
 {
     if (backend_ == BackendKind::DirectMft) {
@@ -168,6 +178,19 @@ void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
     }
 }
 
+void ScanEngine::emitAnalytics(const EngineCallbacks& callbacks)
+{
+    if (!callbacks.onAnalytics) {
+        return;
+    }
+    // Snapshot under the analytics lock, deliver under the emit lock.
+    // Lock order (emit -> analytics) is the only nesting anywhere:
+    // recordFile() takes the analytics lock alone, so no inversion.
+    AnalyticsSnapshot snap = analytics_.snapshot();
+    std::lock_guard<std::mutex> lock{emitMutex_};
+    callbacks.onAnalytics(std::move(snap));
+}
+
 void ScanEngine::workerMain(const EngineCallbacks& callbacks)
 {
     auto finder = makeFinder();
@@ -201,6 +224,14 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                 && lastTelemetryMs_.compare_exchange_weak(last, ms, std::memory_order_relaxed,
                                                           std::memory_order_relaxed)) {
                 emitTelemetry(callbacks, "periodic");
+            }
+            // Live analytics at most every second engine-wide (same
+            // single-winner pattern); the exact finals come from run().
+            auto lastA = lastAnalyticsMs_.load(std::memory_order_relaxed);
+            if (ms - lastA >= 1000
+                && lastAnalyticsMs_.compare_exchange_weak(lastA, ms, std::memory_order_relaxed,
+                                                          std::memory_order_relaxed)) {
+                emitAnalytics(callbacks);
             }
         }
     };
@@ -263,6 +294,14 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks)
                     up = up->parent;
                 }
 
+                const bool ageKnown = node.lastWriteTs != 0;
+                const std::uint64_t ageDays =
+                    (ageKnown && runStartUnix_ >= node.lastWriteTs)
+                        ? (runStartUnix_ - node.lastWriteTs) / 86400ULL
+                        : 0;
+                analytics_.recordFile(node.nameUtf8, utf8Path(entry.fullPath),
+                                      entry.logicalSize, ageDays, ageKnown, entry.ownerId);
+
                 batch.push_back(std::move(node));
                 fileCount_.fetch_add(1, std::memory_order_relaxed);
                 totalBytes_.fetch_add(entry.logicalSize, std::memory_order_relaxed);
@@ -299,11 +338,15 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     batchCount_.store(0, std::memory_order_relaxed);
     errorCount_.store(0, std::memory_order_relaxed);
     lastTelemetryMs_.store(0, std::memory_order_relaxed);
+    lastAnalyticsMs_.store(0, std::memory_order_relaxed);
     userCancelled_.store(false, std::memory_order_relaxed);
+    analytics_.reset();
     scanId_ = scanId; // read-only for the rest of the run (workers spawn below)
 
     auto startTime = std::chrono::steady_clock::now();
     runStart_ = startTime;
+    runStartUnix_ = static_cast<std::uint64_t>(
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
     queue_.reset();
     DirAcc* rootAcc = nullptr;
     {
@@ -365,6 +408,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
         t.join();
     }
     emitSweep(callbacks);
+    emitAnalytics(callbacks); // exact finals now that workers joined
     auto endTime = std::chrono::steady_clock::now();
 
     EngineResult result{};

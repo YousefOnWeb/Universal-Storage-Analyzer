@@ -233,6 +233,109 @@ private slots:
         QVERIFY(sawFatal);
         QCOMPARE(result.fileCount, static_cast<std::uint64_t>(0));
     }
+
+    void topNRespected()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        writeBytes(root / "small.bin", 10);
+        writeBytes(root / "big.bin", 500);
+        writeBytes(root / "mid.bin", 100);
+
+        ScanEngine engine{};
+        engine.setTopN(2);
+        std::vector<usa::scanner::AnalyticsSnapshot> snaps{};
+        std::mutex snapsMutex{};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        cb.onAnalytics = [&](const usa::scanner::AnalyticsSnapshot& s) {
+            std::lock_guard<std::mutex> lock{snapsMutex};
+            snaps.push_back(s);
+        };
+        const auto result = engine.run(root, cb);
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(3));
+        QVERIFY(!snaps.empty()); // exact finals always fire
+        const auto& top = snaps.back().top;
+        QCOMPARE(top.size(), static_cast<std::size_t>(2));
+        QCOMPARE(top[0].bytes, static_cast<std::uint64_t>(500));
+        QCOMPARE(top[1].bytes, static_cast<std::uint64_t>(100));
+    }
+
+    void emitsExactAnalyticsSnapshot()
+    {
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        // Backdate with file-clock arithmetic (portable across OSes).
+        const auto backdate = [&](const std::filesystem::path& p, int hours) {
+            std::error_code ec{};
+            const auto ft = std::filesystem::last_write_time(p, ec);
+            QVERIFY(!ec);
+            std::filesystem::last_write_time(p, ft - std::chrono::hours(hours), ec);
+            QVERIFY(!ec);
+        };
+        writeBytes(root / "a.log", 100);
+        backdate(root / "a.log", 48); // 2 days -> bucket [1,7)
+        writeBytes(root / "b.LOG", 200);
+        backdate(root / "b.LOG", 24 * 40); // 40 days -> bucket [30,180)
+        writeBytes(root / "c.mp4", 300);
+        backdate(root / "c.mp4", 24 * 400); // 400 days -> bucket [365,inf)
+        writeBytes(root / "noext", 50); // now -> bucket [0,1)
+        std::filesystem::create_directory(root / "sub");
+        writeBytes(root / "sub" / "d.log", 400);
+        backdate(root / "sub" / "d.log", 24 * 10); // 10 days -> [7,30)
+
+        ScanEngine engine{};
+        std::vector<usa::scanner::AnalyticsSnapshot> snaps{};
+        std::mutex snapsMutex{};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        cb.onAnalytics = [&](const usa::scanner::AnalyticsSnapshot& s) {
+            std::lock_guard<std::mutex> lock{snapsMutex};
+            snaps.push_back(s);
+        };
+        const auto result = engine.run(root, cb);
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(5));
+        QVERIFY(!snaps.empty());
+        const auto& snap = snaps.back();
+
+        // Extensions fold case; files without one are grouped honestly.
+        std::map<std::string, usa::scanner::ExtensionStat> ext{};
+        for (const auto& [name, st] : snap.extensions) {
+            ext[name] = st;
+        }
+        QCOMPARE(ext.size(), static_cast<std::size_t>(3));
+        QCOMPARE(ext.at(".log").bytes, static_cast<std::uint64_t>(700));
+        QCOMPARE(ext.at(".log").files, static_cast<std::uint64_t>(3));
+        QCOMPARE(ext.at(".mp4").bytes, static_cast<std::uint64_t>(300));
+        QCOMPARE(ext.at("(no extension)").bytes, static_cast<std::uint64_t>(50));
+
+        // Global top files, exact and ordered.
+        QCOMPARE(snap.top.size(), static_cast<std::size_t>(5));
+        const std::uint64_t wantTop[] = {400, 300, 200, 100, 50};
+        for (std::size_t i{0}; i < 5; ++i) {
+            QCOMPARE(snap.top[i].bytes, wantTop[i]);
+        }
+
+        // Default buckets {1,7,30,180,365}: [50,100,400,200,0,300].
+        const std::uint64_t wantAge[] = {50, 100, 400, 200, 0, 300};
+        QCOMPARE(snap.ageBytes.size(), static_cast<std::size_t>(6));
+        for (std::size_t i{0}; i < 6; ++i) {
+            QCOMPARE(snap.ageBytes[i], wantAge[i]);
+        }
+
+        // Owners cover every byte exactly (ids are backend-dependent).
+        std::uint64_t ownerBytes{0};
+        std::uint64_t ownerFiles{0};
+        for (const auto& [id, st] : snap.owners) {
+            QVERIFY(!id.empty());
+            ownerBytes += st.bytes;
+            ownerFiles += st.files;
+        }
+        QCOMPARE(ownerBytes, static_cast<std::uint64_t>(1050));
+        QCOMPARE(ownerFiles, static_cast<std::uint64_t>(5));
+    }
 };
 
 QTEST_MAIN(TestScanEngine)
