@@ -252,11 +252,42 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
     std::vector<EngineNode> batch{};
     batch.reserve(kBatchNodes);
     std::vector<std::unique_ptr<DirAcc>> localDirs{};
+    // Per-worker aggregation: ancestor totals accumulate in a thread-local
+    // map and merge into the shared atomics once per flush instead of once
+    // per file (~500x fewer contended RMWs; deep trees hammer the shared
+    // upper levels otherwise). Live summaries still converge: every merge
+    // precedes the chain emission of the same flush.
+    struct LocalAgg {
+        std::uint64_t logical{0};
+        std::uint64_t physical{0};
+        std::uint32_t files{0};
+        std::uint32_t folders{0};
+    };
+    std::unordered_map<DirAcc*, LocalAgg> localAgg{};
+    std::uint64_t localFiles{0};
+    std::uint64_t localDirsN{0};
+    std::uint64_t localBytes{0};
+    const auto mergeAgg = [&] {
+        for (const auto& [acc, a] : localAgg) {
+            acc->logical.fetch_add(a.logical, std::memory_order_relaxed);
+            acc->physical.fetch_add(a.physical, std::memory_order_relaxed);
+            acc->files.fetch_add(a.files, std::memory_order_relaxed);
+            acc->folders.fetch_add(a.folders, std::memory_order_relaxed);
+        }
+        localAgg.clear();
+        fileCount_.fetch_add(localFiles, std::memory_order_relaxed);
+        localFiles = 0;
+        dirCount_.fetch_add(localDirsN, std::memory_order_relaxed);
+        localDirsN = 0;
+        totalBytes_.fetch_add(localBytes, std::memory_order_relaxed);
+        localBytes = 0;
+    };
     auto lastFlush = std::chrono::steady_clock::now();
     const auto maybeFlush = [&](DirAcc* chainLeaf, bool force) {
         const auto now = std::chrono::steady_clock::now();
         if (!batch.empty()
             && (force || batch.size() >= kBatchNodes || now - lastFlush >= kFlushInterval)) {
+            mergeAgg();
             // Time-based flushes refresh whole ancestor chains (live view).
             // Size/forced flushes emit nodes only: their summaries would
             // duplicate what the final sweep guarantees anyway, and at
@@ -345,24 +376,21 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
                 childAcc->id = node.id;
                 DirAcc* childAccPtr = childAcc.get();
 
-                DirAcc* up = job.acc;
-                while (up != nullptr) {
-                    up->folders.fetch_add(1, std::memory_order_relaxed);
-                    up = up->parent;
+                for (DirAcc* up = job.acc; up != nullptr; up = up->parent) {
+                    localAgg[up].folders += 1;
                 }
 
                 localDirs.push_back(std::move(childAcc));
 
                 batch.push_back(std::move(node));
-                dirCount_.fetch_add(1, std::memory_order_relaxed);
+                ++localDirsN;
                 queue_.push(DirJob{entry.fullPath, childAccPtr, entry.backendToken});
             } else {
-                DirAcc* up = job.acc;
-                while (up != nullptr) {
-                    up->logical.fetch_add(entry.logicalSize, std::memory_order_relaxed);
-                    up->physical.fetch_add(entry.physicalSize, std::memory_order_relaxed);
-                    up->files.fetch_add(1, std::memory_order_relaxed);
-                    up = up->parent;
+                for (DirAcc* up = job.acc; up != nullptr; up = up->parent) {
+                    LocalAgg& agg = localAgg[up];
+                    agg.logical += entry.logicalSize;
+                    agg.physical += entry.physicalSize;
+                    agg.files += 1;
                 }
 
                 const bool ageKnown = node.lastWriteTs != 0;
@@ -375,8 +403,8 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
                     [&] { return utf8Path(entry.fullPath); });
 
                 batch.push_back(std::move(node));
-                fileCount_.fetch_add(1, std::memory_order_relaxed);
-                totalBytes_.fetch_add(entry.logicalSize, std::memory_order_relaxed);
+                ++localFiles;
+                localBytes += entry.logicalSize;
             }
             if (callbacks.onProgress
                 && progressTick_.fetch_add(1, std::memory_order_relaxed) % 2000 == 0) {
@@ -389,6 +417,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
         queue_.taskDone();
     }
     maybeFlush(nullptr, true);
+    mergeAgg(); // thread exit (incl. cancel): no counted node is left behind
 
     if (!localDirs.empty()) {
         std::lock_guard<std::mutex> lock{dirsMutex_};
