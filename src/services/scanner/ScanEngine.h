@@ -55,6 +55,11 @@ struct EngineResult {
     std::uint64_t durationMs{0};
     std::uint64_t batchCount{0};
     std::uint64_t errorCount{0};
+    // Phase breakdown for scan-speed diagnosis (all in run() wall time):
+    // volume image load + parse + index, and the final summary sweep.
+    // Traverse time = durationMs - loadMs - sweepMs.
+    std::uint64_t loadMs{0};
+    std::uint64_t sweepMs{0};
 };
 
 struct EngineCallbacks {
@@ -170,6 +175,8 @@ private:
     std::string scanId_{}; // set by run() before workers spawn; read-only after
     std::chrono::steady_clock::time_point runStart_{};
     std::uint64_t runStartUnix_{0}; // system seconds at run start, for age math
+    std::uint64_t loadMs_{0}; // volume load wall time (set before pool spawn)
+    std::uint64_t sweepMs_{0}; // final sweep wall time (set after join)
     std::atomic_bool userCancelled_{false};
     BackendKind backend_{BackendKind::NativeDirectory};
     std::mutex emitMutex_{}; // serializes all callback invocations

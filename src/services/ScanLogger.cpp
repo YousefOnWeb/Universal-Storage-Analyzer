@@ -113,6 +113,13 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     out << "[Result]\n";
     out << "Finished:     " << now.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) << "\n";
     out << "Duration:     " << result.durationMs << " ms\n";
+    out << "Volume load:  " << result.loadMs << " ms\n";
+    out << "Final sweep:  " << result.sweepMs << " ms\n";
+    out << "Traverse:     "
+        << (result.durationMs > result.loadMs + result.sweepMs
+                ? result.durationMs - result.loadMs - result.sweepMs
+                : 0)
+        << " ms (duration - load - sweep)\n";
     out << "Files:        " << result.fileCount << "\n";
     out << "Directories:  " << result.dirCount << "\n";
     out << "Total bytes:  " << formatBytes(result.totalBytes) << "\n";

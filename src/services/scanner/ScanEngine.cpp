@@ -198,6 +198,7 @@ void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* pha
          << ",\"nodes_per_sec\":" << std::fixed << std::setprecision(1) << rate
          << ",\"batches\":" << batchCount_.load(std::memory_order_relaxed)
          << ",\"errors\":" << errorCount_.load(std::memory_order_relaxed)
+         << ",\"load_ms\":" << loadMs_ << ",\"sweep_ms\":" << sweepMs_
          << ",\"queue_depth\":" << queue_.size()
          << ",\"idle_workers\":" << queue_.waitingWorkers()
          << ",\"backend\":\"" << backendName(backend_) << "\"}";
@@ -445,7 +446,9 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
 #else
     backend_ = BackendKind::NativeDirectory;
 #endif
+    std::uint64_t loadMs{0};
     if (backend_ == BackendKind::DirectMft) {
+        const auto probeStart = std::chrono::steady_clock::now();
         MftFinder probe{};
         if (!probe.open(root)) {
             backend_ = BackendKind::NativeDirectory;
@@ -461,6 +464,10 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
                                    + "; using native enumeration.");
             }
         }
+        loadMs = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
+                                                                  - probeStart)
+                .count());
     }
 
     unsigned workers = std::thread::hardware_concurrency();
@@ -479,8 +486,13 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     for (auto& t : pool) {
         t.join();
     }
+    const auto joinEnd = std::chrono::steady_clock::now();
     emitSweep(callbacks);
     emitAnalytics(callbacks); // exact finals now that workers joined
+    const std::uint64_t sweepMs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
+                                                              - joinEnd)
+            .count());
     if (callbacks.onThrottleChanged
         && throttlePolicy_.throttled() != lastThrottleEmitted_.load(std::memory_order_relaxed)) {
         // A transition with no later flush to announce it (quiet tail).
@@ -499,6 +511,10 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
         std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count());
     result.batchCount = batchCount_.load(std::memory_order_relaxed);
     result.errorCount = errorCount_.load(std::memory_order_relaxed);
+    result.loadMs = loadMs;
+    result.sweepMs = sweepMs;
+    loadMs_ = loadMs;
+    sweepMs_ = sweepMs;
     emitTelemetry(callbacks, "final");
     return result;
 }
