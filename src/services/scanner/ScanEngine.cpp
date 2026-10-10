@@ -201,6 +201,7 @@ void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* pha
          << ",\"load_ms\":" << loadMs_ << ",\"sweep_ms\":" << sweepMs_
          << ",\"queue_depth\":" << queue_.size()
          << ",\"idle_workers\":" << queue_.waitingWorkers()
+         << ",\"throttled\":" << (throttlePolicy_.throttled() ? "true" : "false")
          << ",\"backend\":\"" << backendName(backend_) << "\"}";
     std::lock_guard<std::mutex> lock{emitMutex_};
     callbacks.onTelemetry(json.str());

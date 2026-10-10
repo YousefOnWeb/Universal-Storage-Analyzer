@@ -133,6 +133,10 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         qInfo().noquote() << QString::fromStdString(json);
     };
     callbacks.onThrottleChanged = [&](bool throttled) {
+        // Transitions are rare (hysteresis) and load-bearing for speed
+        // diagnosis: always log, then deliver for status display.
+        qInfo().noquote() << QStringLiteral("{\"scan_id\":\"%1\",\"throttle\":%2}")
+                                 .arg(taskId, throttled ? "true" : "false");
         emit throttleChanged(taskId, throttled);
     };
     callbacks.onNotice = [&](const std::string& message) {
