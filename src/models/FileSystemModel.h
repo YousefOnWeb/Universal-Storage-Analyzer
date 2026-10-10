@@ -47,6 +47,9 @@ public:
     quint32 nodeIdForIndex(const QModelIndex& index) const;
     QModelIndex indexForNodeId(quint32 nodeId) const;
     quint64 totalLogicalBytes() const { return totalLogical_; }
+    // Accumulated GUI-thread mutation wall time (inserts + summary
+    // applies), for scan-speed diagnosis. Reset per scan.
+    quint64 insertUsec() const { return insertUs_; }
 
     // Treemap/analytics support: structural reads for layout input.
     struct ChildEntry {
@@ -110,6 +113,7 @@ private:
     QTimer coalesceTimer_{};
     Node* root_{nullptr};
     quint64 totalLogical_{0};
+    std::uint64_t insertUs_{0};
 
 private slots:
     void flushDirtySummaries();

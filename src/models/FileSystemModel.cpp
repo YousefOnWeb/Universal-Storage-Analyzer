@@ -1,6 +1,7 @@
 #include "FileSystemModel.h"
 
 #include <QDateTime>
+#include <QElapsedTimer>
 
 #include <vector>
 
@@ -249,12 +250,15 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
     root_ = root.get();
     owned_.emplace(0, std::move(root));
     totalLogical_ = 0;
+    insertUs_ = 0;
     endResetModel();
     emit modelResetForNewScan(targetPath);
 }
 
 void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileRecord> batch)
 {
+    QElapsedTimer t{};
+    t.start();
     int i = 0;
     const int n = static_cast<int>(batch.size());
     while (i < n) {
@@ -322,15 +326,19 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
         endInsertRows();
         i += count;
     }
+    insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
 }
 
 void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMetrics metrics)
 {
+    QElapsedTimer t{};
+    t.start();
     const auto it = owned_.find(metrics.nodeId);
     if (it == owned_.end()) {
         // Node batches are chunked while summaries stream immediately, so a
         // summary can precede its node. Stash it; the insert path applies it.
         pendingSummaries_[metrics.nodeId] = metrics;
+        insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
         return;
     }
     // Replace semantics: the engine reports absolute running totals per
@@ -344,6 +352,7 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
     if (!coalesceTimer_.isActive()) {
         coalesceTimer_.start();
     }
+    insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
 }
 
 void FileSystemModel::applyMetrics(Node* node, const BranchMetrics& metrics)

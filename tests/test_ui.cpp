@@ -3,6 +3,7 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QLabel>
+#include <QMap>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -74,6 +75,37 @@ QLabel* statusLabel(QWidget* win)
     }
     return nullptr;
 }
+
+// Prefs are ambient user state (a running app instance, earlier runs):
+// back up the options/* keys, pin exactly what the test needs, restore
+// on scope exit. RAII matters because QVERIFY aborts the slot, which
+// would skip plain end-of-test cleanup. Construction is explicit
+// org/app, exactly like production code: default-constructed QSettings
+// resolves nowhere useful in test binaries (no names are set here).
+struct SettingsGuard {
+    QSettings settings{QStringLiteral("UniversalStorageAnalyzer"),
+                       QStringLiteral("UniversalStorageAnalyzer")};
+    QMap<QString, QVariant> prior{};
+
+    explicit SettingsGuard(const QStringList& keys)
+    {
+        for (const auto& k : keys) {
+            prior[k] = settings.value(k, QVariant{});
+        }
+    }
+
+    ~SettingsGuard()
+    {
+        for (auto it = prior.begin(); it != prior.end(); ++it) {
+            if (it.value().isValid()) {
+                settings.setValue(it.key(), it.value());
+            } else {
+                settings.remove(it.key());
+            }
+        }
+        settings.sync();
+    }
+};
 
 } // namespace
 
@@ -381,13 +413,15 @@ private slots:
 
     void optionsDialogValidatesAndPersists()
     {
-        // Sandbox the settings backend: this must not touch real prefs.
-        // Runs after the other tests in this binary use defaults only.
-        QTemporaryDir settingsDir{};
-        QVERIFY(settingsDir.isValid());
-        QSettings::setDefaultFormat(QSettings::IniFormat);
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                           settingsDir.path());
+        SettingsGuard guard({QStringLiteral("options/ageBuckets"),
+                             QStringLiteral("options/topN"),
+                             QStringLiteral("options/startup"),
+                             QStringLiteral("options/throttle")});
+        QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
+                        QStringLiteral("UniversalStorageAnalyzer")};
+        setup.remove(QStringLiteral("options/topN")); // pin the default path
+        setup.setValue(QStringLiteral("options/startup"), QStringLiteral("last"));
+        setup.setValue(QStringLiteral("options/throttle"), true);
 
         QVERIFY(!OptionsDialog::validateBuckets(QStringLiteral("7,7,0"), nullptr));
         QVERIFY(!OptionsDialog::validateBuckets(QStringLiteral("abc"), nullptr));
@@ -413,13 +447,11 @@ private slots:
 
     void agePaneRebucketsFromMemory()
     {
-        QTemporaryDir settingsDir{};
-        QVERIFY(settingsDir.isValid());
-        QSettings::setDefaultFormat(QSettings::IniFormat);
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
-                           settingsDir.path());
+        SettingsGuard guard({QStringLiteral("options/ageBuckets")});
+        QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
+                        QStringLiteral("UniversalStorageAnalyzer")};
+        setup.setValue(QStringLiteral("options/ageBuckets"), QStringLiteral("7,30"));
         OptionsDialog buckets{};
-        buckets.setBucketsCsv(QStringLiteral("7,30"));
         buckets.accept();
         QCOMPARE(buckets.result(), static_cast<int>(QDialog::Accepted));
 

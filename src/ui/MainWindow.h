@@ -12,6 +12,7 @@
 #include "TreemapWidget.h"
 
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QProgressBar>
@@ -102,6 +103,7 @@ private:
 
     QString activeTaskId_{};
     bool scanning_{false};
+    QElapsedTimer scanWallT_{}; // click-to-Ready wall time for speed diagnosis
     // Non-fatal scan errors collected during a scan (fatal ones pop up
     // immediately). Shown together in one summary dialog on finish; capped
     // so pathological volumes cannot grow the list without bound.

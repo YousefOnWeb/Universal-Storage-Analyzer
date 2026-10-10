@@ -10,6 +10,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -334,6 +335,7 @@ void MainWindow::onStartStop()
         activeTaskId_ = scanner_->startScan(target);
         pie_->setTargetPath(target);
         scanning_ = true;
+        scanWallT_.start();
         skippedPaths_.clear();
         skippedOverflow_ = 0;
         // Freeze live resorting/filtering while rows stream in: per-insert
@@ -361,8 +363,15 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
     startStopBtn_->setText(QStringLiteral("Start"));
     startStopBtn_->setEnabled(true);
     progress_->setVisible(false);
+    // Time the finish-time re-sort explicitly: over a million-row model it
+    // can dominate click-to-Ready and must stay visible in the log.
+    QElapsedTimer resortT{};
+    resortT.start();
     treeProxy_->setDynamicSortFilter(true);
     detailsProxy_->setDynamicSortFilter(true);
+    qInfo() << "Scan UI finalize: resort" << resortT.elapsed() << "ms, model insert"
+            << (model_->insertUsec() / 1000ULL) << "ms, click-to-Ready"
+            << scanWallT_.elapsed() << "ms";
     const qsizetype skippedTotal = skippedPaths_.size() + skippedOverflow_;
     if (skippedTotal > 0) {
         statusLabel_->setText(QStringLiteral("Ready (%1 skipped)").arg(skippedTotal));
