@@ -37,6 +37,8 @@ ScannerService::ScannerService(QObject* parent)
             Qt::QueuedConnection);
     connect(worker_, &LocalScannerWorker::analyticsUpdated, this,
             &ScannerService::analyticsUpdated, Qt::QueuedConnection);
+    connect(worker_, &LocalScannerWorker::sweepUpdated, this, &ScannerService::sweepUpdated,
+            Qt::QueuedConnection);
     connect(worker_, &LocalScannerWorker::throttleChanged, this,
             &ScannerService::throttleChanged, Qt::QueuedConnection);
     // Sampler runs on its own thread; samples apply straight into the

@@ -37,6 +37,8 @@ private slots:
                          &FileSystemModel::onNodesDiscovered);
         QObject::connect(&svc, &ScannerService::branchMetricsUpdated, &model,
                          &FileSystemModel::onBranchMetricsUpdated);
+        QObject::connect(&svc, &ScannerService::sweepUpdated, &model,
+                         &FileSystemModel::onSweepUpdated);
         QObject::connect(&svc, &ScannerService::scanStarted, &model,
                          &FileSystemModel::onScanStarted);
 

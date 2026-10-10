@@ -56,6 +56,7 @@ signals:
     // collected as skipped items.
     void noticeOccurred(const QString& taskId, const QString& message);
     void analyticsUpdated(const QString& taskId, const AnalyticsData& data);
+    void sweepUpdated(const QString& taskId, const QVector<BranchMetrics>& summaries);
     void throttleChanged(const QString& taskId, bool throttled);
 
 private:

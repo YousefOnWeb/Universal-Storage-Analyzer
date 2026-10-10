@@ -187,6 +187,22 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         }
         emit analyticsUpdated(taskId, data);
     };
+    callbacks.onSweep = [&](std::vector<EngineDirSummary> summaries) {
+        // Bulk finals ride as one queued event; the model applies values
+        // immediately and lets its coalescer pace the repaint.
+        QVector<BranchMetrics> out{};
+        out.reserve(static_cast<int>(summaries.size()));
+        for (const auto& s : summaries) {
+            BranchMetrics m{};
+            m.nodeId = s.nodeId;
+            m.logicalSize = s.logicalSize;
+            m.allocatedSize = s.physicalSize;
+            m.fileCount = s.fileCount;
+            m.folderCount = s.folderCount;
+            out.push_back(std::move(m));
+        }
+        emit sweepUpdated(taskId, out);
+    };
 
     const usa::scanner::EngineResult result =
         engine_.run(root, callbacks, taskId.toUtf8().toStdString());

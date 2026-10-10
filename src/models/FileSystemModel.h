@@ -66,6 +66,7 @@ public slots:
     void clear();
     void onNodesDiscovered(const QString& taskId, QVector<FileRecord> batch);
     void onBranchMetricsUpdated(const QString& taskId, BranchMetrics metrics);
+    void onSweepUpdated(const QString& taskId, const QVector<BranchMetrics>& summaries);
     void onScanStarted(const QString& taskId, const QString& targetPath);
 
 signals:

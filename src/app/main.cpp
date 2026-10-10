@@ -251,6 +251,8 @@ int runGui(QApplication& app)
                      &FileSystemModel::onNodesDiscovered, Qt::QueuedConnection);
     QObject::connect(&scanner, &ScannerService::branchMetricsUpdated, &model,
                      &FileSystemModel::onBranchMetricsUpdated, Qt::QueuedConnection);
+    QObject::connect(&scanner, &ScannerService::sweepUpdated, &model,
+                     &FileSystemModel::onSweepUpdated, Qt::QueuedConnection);
     QObject::connect(&scanner, &ScannerService::scanStarted, &model,
                      &FileSystemModel::onScanStarted, Qt::QueuedConnection);
 
@@ -293,6 +295,7 @@ int main(int argc, char* argv[])
     qRegisterMetaType<QVector<FileRecord>>("QVector<FileRecord>");
     qRegisterMetaType<BranchMetrics>("BranchMetrics");
     qRegisterMetaType<AnalyticsData>("AnalyticsData");
+    qRegisterMetaType<QVector<BranchMetrics>>("QVector<BranchMetrics>");
     qRegisterMetaType<usa::DiskSample>("usa::DiskSample");
 
     QCommandLineParser parser{};

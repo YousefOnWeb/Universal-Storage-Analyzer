@@ -84,6 +84,11 @@ struct EngineCallbacks {
     // absolute replace-semantics values, live at most ~1/sec plus one
     // exact final after the sweep. Empty when the consumer wants none.
     std::function<void(const AnalyticsSnapshot&)> onAnalytics{};
+    // Final directory totals as ONE bulk delivery (hundreds of thousands
+    // of rows): the consumer applies values and repaints once instead of
+    // choking the event loop with per-directory queued signals. Live
+    // (possibly partial) totals still stream via onDirSummary.
+    std::function<void(std::vector<EngineDirSummary>)> onSweep{};
 };
 
 // Multi-threaded scan orchestrator (Qt-free).

@@ -54,6 +54,8 @@ private slots:
 
         ScanEngine engine{};
         Collected out{};
+        std::vector<EngineDirSummary> sweep{};
+        std::mutex sweepMutex{};
         usa::scanner::EngineCallbacks cb{};
         cb.onBatch = [&](std::vector<EngineNode> batch) {
             ++out.batches;
@@ -65,6 +67,10 @@ private slots:
         cb.onDirSummary = [&](const EngineDirSummary& s) {
             std::lock_guard<std::mutex> lock{out.mutex};
             out.lastSummary[s.nodeId] = s;
+        };
+        cb.onSweep = [&](std::vector<EngineDirSummary> v) {
+            std::lock_guard<std::mutex> lock{sweepMutex};
+            sweep = std::move(v);
         };
         const auto result = engine.run(root, cb);
 
@@ -93,10 +99,16 @@ private slots:
 
         // Final per-directory summaries converge to exact subtree totals
         // (replace semantics — no doubling). Counts are subtree-wide too.
-        QVERIFY(out.lastSummary.contains(0));
-        QCOMPARE(out.lastSummary.at(0).logicalSize, static_cast<std::uint64_t>(600));
-        QCOMPARE(out.lastSummary.at(0).fileCount, static_cast<std::uint32_t>(3));
-        QCOMPARE(out.lastSummary.at(0).folderCount, static_cast<std::uint32_t>(2));
+        // Finals arrive as one bulk sweep (live leaf reports are best
+        // effort on tiny trees); assert exactness there.
+        std::map<std::uint32_t, EngineDirSummary> finals{};
+        for (const auto& s : sweep) {
+            finals[s.nodeId] = s;
+        }
+        QVERIFY(finals.contains(0));
+        QCOMPARE(finals.at(0).logicalSize, static_cast<std::uint64_t>(600));
+        QCOMPARE(finals.at(0).fileCount, static_cast<std::uint32_t>(3));
+        QCOMPARE(finals.at(0).folderCount, static_cast<std::uint32_t>(2));
         std::uint32_t subId{0};
         for (const auto& n : out.nodes) {
             if (n.nameUtf8 == "sub") {
@@ -104,9 +116,9 @@ private slots:
             }
         }
         QVERIFY(subId != 0);
-        QVERIFY(out.lastSummary.contains(subId));
-        QCOMPARE(out.lastSummary.at(subId).logicalSize, static_cast<std::uint64_t>(300));
-        QCOMPARE(out.lastSummary.at(subId).fileCount, static_cast<std::uint32_t>(1));
+        QVERIFY(finals.contains(subId));
+        QCOMPARE(finals.at(subId).logicalSize, static_cast<std::uint64_t>(300));
+        QCOMPARE(finals.at(subId).fileCount, static_cast<std::uint32_t>(1));
 
         // The final sweep covers every discovered directory, so all of
         // them converge no matter which intermediate summaries were
@@ -119,7 +131,7 @@ private slots:
         }
         QCOMPARE(dirIds.size(), static_cast<std::size_t>(3)); // root + sub + emptydir
         for (const std::uint32_t id : dirIds) {
-            QVERIFY(out.lastSummary.contains(id));
+            QVERIFY(finals.contains(id));
         }
     }
 

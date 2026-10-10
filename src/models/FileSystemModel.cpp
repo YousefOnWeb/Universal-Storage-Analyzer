@@ -393,6 +393,30 @@ void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMe
     insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
 }
 
+void FileSystemModel::onSweepUpdated(const QString& /*taskId*/,
+                                     const QVector<BranchMetrics>& summaries)
+{
+    // Bulk finals: apply every value now, repaint once via the coalescer.
+    // No per-row dataChanged here — hundreds of thousands of immediate
+    // repaints would stall the event loop for seconds.
+    QElapsedTimer t{};
+    t.start();
+    for (const auto& metrics : summaries) {
+        const auto it = owned_.find(metrics.nodeId);
+        if (it == owned_.end()) {
+            pendingSummaries_[metrics.nodeId] = metrics;
+            continue;
+        }
+        Node* node = it->second.get();
+        applyMetrics(node, metrics);
+        dirtyIds_.insert(node->id);
+    }
+    if (!dirtyIds_.isEmpty() && !coalesceTimer_.isActive()) {
+        coalesceTimer_.start();
+    }
+    insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
+}
+
 void FileSystemModel::applyMetrics(Node* node, const BranchMetrics& metrics)
 {
     node->logicalSize = metrics.logicalSize;

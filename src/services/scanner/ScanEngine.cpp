@@ -209,22 +209,28 @@ void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* pha
 
 void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
 {
-    if (!callbacks.onDirSummary) {
+    if (!callbacks.onSweep) {
         return;
     }
     // Absolute finals for every directory. Guarantees exactness no matter
     // which intermediate summaries were throttled away above. Runs after
-    // all workers joined, so no accumulator can change underfoot.
-    std::lock_guard<std::mutex> lock{emitMutex_};
-    for (const auto& acc : allDirs_) {
-        EngineDirSummary summary{};
-        summary.nodeId = acc->id;
-        summary.logicalSize = acc->logical.load(std::memory_order_relaxed);
-        summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
-        summary.fileCount = acc->files.load(std::memory_order_relaxed);
-        summary.folderCount = acc->folders.load(std::memory_order_relaxed);
-        callbacks.onDirSummary(summary);
+    // all workers joined, so no accumulator can change underfoot. One bulk
+    // event — not one queued signal per directory.
+    std::vector<EngineDirSummary> out{};
+    out.reserve(allDirs_.size());
+    {
+        std::lock_guard<std::mutex> lock{emitMutex_};
+        for (const auto& acc : allDirs_) {
+            EngineDirSummary summary{};
+            summary.nodeId = acc->id;
+            summary.logicalSize = acc->logical.load(std::memory_order_relaxed);
+            summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
+            summary.fileCount = acc->files.load(std::memory_order_relaxed);
+            summary.folderCount = acc->folders.load(std::memory_order_relaxed);
+            out.push_back(summary);
+        }
     }
+    callbacks.onSweep(std::move(out));
 }
 
 void ScanEngine::emitAnalytics(const EngineCallbacks& callbacks)
@@ -364,8 +370,9 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
                     (ageKnown && runStartUnix_ >= node.lastWriteTs)
                         ? (runStartUnix_ - node.lastWriteTs) / 86400ULL
                         : 0;
-                analytics_.recordFile(node.id, node.nameUtf8, utf8Path(entry.fullPath),
-                                      entry.logicalSize, ageDays, ageKnown, entry.ownerId);
+                analytics_.recordFileLazy(
+                    node.id, node.nameUtf8, entry.logicalSize, ageDays, ageKnown, entry.ownerId,
+                    [&] { return utf8Path(entry.fullPath); });
 
                 batch.push_back(std::move(node));
                 fileCount_.fetch_add(1, std::memory_order_relaxed);
