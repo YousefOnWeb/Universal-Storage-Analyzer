@@ -126,6 +126,18 @@ public:
                     std::uint64_t bytes, std::uint64_t ageDays, bool ageKnown,
                     const std::string& ownerId)
     {
+        recordFileLazy(id, nameUtf8, bytes, ageDays, ageKnown, ownerId,
+                       [&] { return pathUtf8; });
+    }
+
+    // Same, but the full-path string is built lazily and only for files
+    // that actually enter the top-N heap. Full-path UTF conversion per
+    // file dominated the hot path; 99.9% of files never need it.
+    template <typename PathFn>
+    void recordFileLazy(std::uint32_t id, const std::string& nameUtf8, std::uint64_t bytes,
+                        std::uint64_t ageDays, bool ageKnown, const std::string& ownerId,
+                        PathFn&& pathFn)
+    {
         const std::string ext = extensionOf(nameUtf8);
         std::lock_guard<std::mutex> lock{mutex_};
         auto& es = ext_[ext];
@@ -151,11 +163,11 @@ public:
             ++ageFiles_[b];
         }
         if (heap_.size() < topN_) {
-            heap_.push_back(TopEntry{bytes, id, pathUtf8, nameUtf8});
+            heap_.push_back(TopEntry{bytes, id, pathFn(), nameUtf8});
             std::push_heap(heap_.begin(), heap_.end(), &heavier);
         } else if (!heap_.empty() && bytes > heap_.front().bytes) {
             std::pop_heap(heap_.begin(), heap_.end(), &heavier);
-            heap_.back() = TopEntry{bytes, id, pathUtf8, nameUtf8};
+            heap_.back() = TopEntry{bytes, id, pathFn(), nameUtf8};
             std::push_heap(heap_.begin(), heap_.end(), &heavier);
         }
     }
