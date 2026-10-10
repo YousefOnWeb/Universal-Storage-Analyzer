@@ -2,6 +2,7 @@
 
 #include <QDebug>
 
+#include <algorithm>
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -75,13 +76,19 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     const std::filesystem::path root{targetPath.toStdString()};
 #endif
 
-    // Re-chunk engine batches (128/timeout-driven) into UI batches (500).
-    // Callbacks fire on engine worker threads; pending_ is shared.
+    // Re-chunk engine batches into UI batches (500). The engine streams
+    // in MFT/traversal order, so parents scatter: sorting each batch by
+    // parentId first turns hundreds of one-row model transactions into a
+    // handful of contiguous inserts downstream. Callbacks fire on engine
+    // worker threads; pending_ is shared.
     std::vector<FileRecord> pending{};
     pending.reserve(static_cast<std::size_t>(kBatchSize));
 
     usa::scanner::EngineCallbacks callbacks{};
     callbacks.onBatch = [&](std::vector<EngineNode> batch) {
+        std::stable_sort(batch.begin(), batch.end(), [](const EngineNode& a, const EngineNode& b) {
+            return a.parentId < b.parentId;
+        });
         QVector<FileRecord> ready{};
         {
             std::lock_guard<std::mutex> lock{pendingMutex_};

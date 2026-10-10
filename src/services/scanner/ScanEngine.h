@@ -104,8 +104,12 @@ struct EngineCallbacks {
 // this with a single-flight check (see LocalScannerWorker).
 class ScanEngine {
 public:
-    static constexpr std::size_t kBatchNodes{128};
-    static constexpr std::chrono::milliseconds kFlushInterval{100};
+    // Batch cadence: large enough that queued delivery + per-group model
+    // inserts amortize (measured: 7-node average batches drowned the GUI
+    // thread in 260k+ transactions on a full-volume scan), small enough
+    // that the UI still streams live several times per second.
+    static constexpr std::size_t kBatchNodes{512};
+    static constexpr std::chrono::milliseconds kFlushInterval{250};
     static constexpr unsigned kMaxWorkers{16};
 
     ScanEngine();
