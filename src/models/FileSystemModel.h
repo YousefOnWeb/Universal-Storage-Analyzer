@@ -93,12 +93,21 @@ private:
     Node* nodeFromIndex(const QModelIndex& index) const;
     void applyMetrics(Node* node, const BranchMetrics& metrics);
     void refreshNode(const QModelIndex& top, Node* node);
+    // Inserts one batch grouped into contiguous same-parent transactions.
+    // Newly inserted ids drain any waiting children (recursive, sequential:
+    // each group opens and closes its own rows-insert transaction).
+    void insertGrouped(const QVector<FileRecord>& batch);
 
     std::unordered_map<quint32, std::unique_ptr<Node>> owned_{};
     // Summaries that arrived before their node (node batches are chunked
     // for signal efficiency while summaries stream immediately). Applied
     // on insert; latest wins.
     std::unordered_map<quint32, BranchMetrics> pendingSummaries_{};
+    // Nodes whose parent has not arrived yet (MFT/traversal order scatters
+    // families across batches and workers, so child-before-parent is
+    // routine). Drained when the parent inserts — never misattached to
+    // root. Cleared on reset; a correct engine always delivers the parent.
+    std::unordered_map<quint32, QVector<FileRecord>> pendingChildren_;
     // View-notification coalescing: values are stored immediately, but
     // dataChanged (which drives proxy re-filtering and repaints) fires at
     // most every 100 ms, bounded per tick so burst catch-up (e.g. the

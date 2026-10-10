@@ -71,6 +71,43 @@ private slots:
         QCOMPARE(model.rowCount(dIdx), 1); // f2
     }
 
+    void defersChildArrivingBeforeItsParent()
+    {
+        // Workers race: a child batch can land before the parent's batch.
+        // The child must wait (not misattach to root) and land correctly.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 1; // D does not exist yet
+        f2.name = QStringLiteral("f2");
+        f2.logicalSize = 500;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f2});
+        // Nothing stored yet — certainly not at root.
+        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
+
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        // Parent arrival drains the waiter into place; totals stay exact.
+        QCOMPARE(model.rowCount(QModelIndex{}), 2); // D + f1, never 3
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        QVERIFY(dIdx.isValid());
+        QCOMPARE(model.rowCount(dIdx), 1); // f2
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(600));
+    }
+
     void coalescesRapidSummarySignals()
     {
         FileSystemModel model{};

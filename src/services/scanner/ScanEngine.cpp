@@ -379,7 +379,6 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
             maybeFlush(job.acc, false);
         }
         finder->close();
-        maybeFlush(job.acc, true);
         queue_.taskDone();
     }
     maybeFlush(nullptr, true);

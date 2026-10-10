@@ -222,6 +222,7 @@ void FileSystemModel::clear()
     beginResetModel();
     owned_.clear();
     pendingSummaries_.clear();
+    pendingChildren_.clear();
     dirtyIds_.clear();
     coalesceTimer_.stop();
     auto root = std::make_unique<Node>();
@@ -240,6 +241,7 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
     beginResetModel();
     owned_.clear();
     pendingSummaries_.clear();
+    pendingChildren_.clear();
     dirtyIds_.clear();
     coalesceTimer_.stop();
     auto root = std::make_unique<Node>();
@@ -259,6 +261,27 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
 {
     QElapsedTimer t{};
     t.start();
+    // Partition first: records whose parent is already stored insert now;
+    // records whose parent is still in flight wait instead of misattaching
+    // to root (child-before-parent is routine across workers).
+    QVector<FileRecord> ready{};
+    ready.reserve(batch.size());
+    for (const auto& rec : batch) {
+        if (rec.id == 0 || owned_.find(rec.id) != owned_.end()) {
+            continue;
+        }
+        if (rec.parentId == 0 || owned_.find(rec.parentId) != owned_.end()) {
+            ready.push_back(rec);
+        } else {
+            pendingChildren_[rec.parentId].push_back(rec);
+        }
+    }
+    insertGrouped(ready);
+    insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
+}
+
+void FileSystemModel::insertGrouped(const QVector<FileRecord>& batch)
+{
     int i = 0;
     const int n = static_cast<int>(batch.size());
     while (i < n) {
@@ -270,6 +293,8 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
 
         const quint32 currentParentId = firstRec.parentId;
         const auto parentIt = owned_.find(currentParentId);
+        // Parent guaranteed present: partition and drain only feed known
+        // parents (id 0 is the root anchor). Fall back to root defensively.
         Node* parentNode = parentIt != owned_.end() ? parentIt->second.get() : root_;
         if (parentNode == nullptr) {
             parentNode = root_;
@@ -295,6 +320,8 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
 
         beginInsertRows(parentIdx, firstRow, lastRow);
 
+        std::vector<quint32> freshIds{};
+        freshIds.reserve(static_cast<std::size_t>(count));
         for (int j = 0; j < count; ++j) {
             const FileRecord& rec = batch[i + j];
             auto node = std::make_unique<Node>();
@@ -311,6 +338,7 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
             Node* raw = node.get();
             owned_.emplace(raw->id, std::move(node));
             parentNode->children.push_back(raw);
+            freshIds.push_back(raw->id);
 
             if (!raw->isDirectory) {
                 totalLogical_ += raw->logicalSize;
@@ -325,8 +353,18 @@ void FileSystemModel::onNodesDiscovered(const QString& /*taskId*/, QVector<FileR
 
         endInsertRows();
         i += count;
+
+        // Drain children that waited for these parents (sequential groups,
+        // each with its own transaction; deeper levels recurse).
+        for (const quint32 fresh : freshIds) {
+            const auto waiting = pendingChildren_.find(fresh);
+            if (waiting != pendingChildren_.end()) {
+                QVector<FileRecord> kids = std::move(waiting->second);
+                pendingChildren_.erase(waiting);
+                insertGrouped(kids);
+            }
+        }
     }
-    insertUs_ += static_cast<std::uint64_t>(t.nsecsElapsed() / 1000LL);
 }
 
 void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMetrics metrics)

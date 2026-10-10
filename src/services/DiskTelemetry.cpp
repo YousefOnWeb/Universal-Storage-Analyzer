@@ -22,6 +22,11 @@
 
 #include <QElapsedTimer>
 
+#include <functional>
+#include <thread>
+
+#include <QDebug>
+
 namespace {
 
 constexpr int kPollMs{1000};
@@ -461,6 +466,12 @@ void DiskTelemetry::startMonitoring(const QString& targetPath)
     stopMonitoring();
     targetPath_ = targetPath;
     warming_ = true;
+    // One line per scan: proves which thread this runs on (a startTimer
+    // affinity warning pointed here; the moveToThread contract says this
+    // must be the telemetry thread, never the GUI thread).
+    qInfo() << "DiskTelemetry monitoring" << targetPath_ << "on thread"
+            << static_cast<unsigned long long>(
+                   std::hash<std::thread::id>{}(std::this_thread::get_id()));
 #ifdef _WIN32
     pdh_ = new PdhState{};
     if (!pdh_->open(targetPath_)) {

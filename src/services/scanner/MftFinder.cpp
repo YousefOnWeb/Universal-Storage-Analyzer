@@ -389,14 +389,39 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     // serial and the stale image is reloaded. Volumes are effectively
     // immutable during a scan; a rescan reloads only when the weak
     // reference has expired or the serial differs.
+    //
+    // The serial query itself is cached briefly: it cannot change
+    // mid-scan, but loadVolume runs per directory open (hundreds of
+    // thousands of times per scan) and the OS call is not free. A 60 s
+    // TTL keeps remount detection for every realistic flow.
     DWORD currentSerial{0};
     {
         std::wstring volRoot = anyPathOnVolume.root_path().native();
         if (!volRoot.empty() && volRoot.back() != L'\\') {
             volRoot += L'\\';
         }
-        GetVolumeInformationW(volRoot.c_str(), nullptr, 0, &currentSerial, nullptr, nullptr,
-                              nullptr, 0);
+        static std::mutex serialMutex{};
+        static std::unordered_map<std::wstring, std::pair<DWORD, ULONGLONG>> serialCache{};
+        const ULONGLONG nowTicks = GetTickCount64();
+        bool haveCached{false};
+        {
+            const std::lock_guard<std::mutex> lock{serialMutex};
+            const auto it = serialCache.find(volRoot);
+            if (it != serialCache.end() && nowTicks - it->second.second < 60000ULL) {
+                currentSerial = it->second.first;
+                haveCached = true;
+            }
+        }
+        if (!haveCached) {
+            DWORD serial{0};
+            if (GetVolumeInformationW(volRoot.c_str(), nullptr, 0, &serial, nullptr, nullptr,
+                                      nullptr, 0)
+                != 0) {
+                currentSerial = serial;
+            }
+            const std::lock_guard<std::mutex> lock{serialMutex};
+            serialCache[volRoot] = {currentSerial, nowTicks};
+        }
     }
     static std::mutex cacheMutex{};
     static std::unordered_map<std::wstring, std::weak_ptr<SharedVolume>> cache{};
