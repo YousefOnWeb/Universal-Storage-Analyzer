@@ -305,6 +305,7 @@ void MainWindow::buildMenus()
 void MainWindow::buildToolbar()
 {
     auto* tb = addToolBar(QStringLiteral("Main"));
+    tb->setObjectName(QStringLiteral("MainToolbar"));
     tb->setMovable(false);
     auto* exportAct = tb->addAction(QStringLiteral("Export"));
     exportAct->setEnabled(false); // Milestone 4
@@ -363,15 +364,14 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
     startStopBtn_->setText(QStringLiteral("Start"));
     startStopBtn_->setEnabled(true);
     progress_->setVisible(false);
-    // Time the finish-time re-sort explicitly: over a million-row model it
-    // can dominate click-to-Ready and must stay visible in the log.
-    QElapsedTimer resortT{};
-    resortT.start();
-    treeProxy_->setDynamicSortFilter(true);
-    detailsProxy_->setDynamicSortFilter(true);
-    qInfo() << "Scan UI finalize: resort" << resortT.elapsed() << "ms, model insert"
-            << (model_->insertUsec() / 1000ULL) << "ms, click-to-Ready"
-            << scanWallT_.elapsed() << "ms";
+    // No finish-time re-sort: with no further model changes pending, the
+    // proxies have nothing to re-sort against, and sorting on demand
+    // (header clicks) works regardless of dynamicSortFilter. Re-enabling
+    // here only buys a multi-second full sort before "Ready" paints
+    // (measured 2.8 s on a 2M-row model). Still disabled from scan start;
+    // the next scan re-applies it.
+    qInfo() << "Scan UI finalize: model insert" << (model_->insertUsec() / 1000ULL)
+            << "ms, click-to-Ready" << scanWallT_.elapsed() << "ms";
     const qsizetype skippedTotal = skippedPaths_.size() + skippedOverflow_;
     if (skippedTotal > 0) {
         statusLabel_->setText(QStringLiteral("Ready (%1 skipped)").arg(skippedTotal));
