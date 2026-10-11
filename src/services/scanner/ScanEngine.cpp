@@ -170,7 +170,10 @@ void ScanEngine::emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc)
     std::lock_guard<std::mutex> lock{emitMutex_};
     for (const auto& s : chain) {
         callbacks.onDirSummary(s);
+        lastChain_[s.nodeId] = s;
     }
+    chainReportCount_.fetch_add(static_cast<std::uint64_t>(chain.size()),
+                                std::memory_order_relaxed);
 }
 
 void ScanEngine::emitTelemetry(const EngineCallbacks& callbacks, const char* phase)
@@ -228,9 +231,29 @@ void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
             summary.fileCount = acc->files.load(std::memory_order_relaxed);
             summary.folderCount = acc->folders.load(std::memory_order_relaxed);
             out.push_back(summary);
+            // Sweep-vs-chain convergence (audit only): compare each final
+            // against the last live chain report for the same directory.
+            const auto it = lastChain_.find(summary.nodeId);
+            if (it == lastChain_.end() || it->second.logicalSize != summary.logicalSize
+                || it->second.fileCount != summary.fileCount
+                || it->second.folderCount != summary.folderCount) {
+                sweepChangedDirs_.fetch_add(1, std::memory_order_relaxed);
+                const std::uint64_t before =
+                    (it == lastChain_.end()) ? 0 : it->second.logicalSize;
+                const std::uint64_t delta = (summary.logicalSize >= before)
+                                                ? (summary.logicalSize - before)
+                                                : (before - summary.logicalSize);
+                sweepDeltaBytes_.fetch_add(delta, std::memory_order_relaxed);
+            }
         }
     }
     callbacks.onSweep(std::move(out));
+}
+
+std::vector<ZeroLogicalEntry> ScanEngine::zeroLogicalEntries() const
+{
+    std::lock_guard<std::mutex> lock{auditMutex_};
+    return zeroEntries_;
 }
 
 void ScanEngine::emitAnalytics(const EngineCallbacks& callbacks)
@@ -392,6 +415,37 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
                     agg.physical += entry.physicalSize;
                     agg.files += 1;
                 }
+                // Subtree-max mtime provenance (audit only): track the
+                // maximum object mtime up the chain. Uses CAS loops on the
+                // shared atomics — rare contention, off the size hot path.
+                if (entry.lastWriteTs != 0) {
+                    for (DirAcc* up = job.acc; up != nullptr; up = up->parent) {
+                        std::uint64_t cur = up->maxMtime.load(std::memory_order_relaxed);
+                        while (entry.lastWriteTs > cur
+                               && !up->maxMtime.compare_exchange_weak(
+                                   cur, entry.lastWriteTs, std::memory_order_relaxed,
+                                   std::memory_order_relaxed)) {
+                        }
+                    }
+                }
+                // Size-audit (004a): name every zero-logical file with its
+                // backend and physical size; count reparse listings.
+                if (entry.isReparsePoint) {
+                    reparseSkipped_.fetch_add(1, std::memory_order_relaxed);
+                }
+                if (entry.logicalSize == 0) {
+                    zeroLogicalCount_.fetch_add(1, std::memory_order_relaxed);
+                    std::lock_guard<std::mutex> lock{auditMutex_};
+                    if (zeroEntries_.size() < kMaxZeroEntries) {
+                        ZeroLogicalEntry z{};
+                        z.pathUtf8 = utf8Path(entry.fullPath);
+                        z.backend = backendName(backend_);
+                        z.physicalSize = entry.physicalSize;
+                        z.isReparse = entry.isReparsePoint;
+                        z.ownerEmpty = entry.ownerId.empty();
+                        zeroEntries_.push_back(std::move(z));
+                    }
+                }
 
                 const bool ageKnown = node.lastWriteTs != 0;
                 const std::uint64_t ageDays =
@@ -443,6 +497,19 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     analytics_.reset();
     throttlePolicy_.reset();
     lastThrottleEmitted_.store(false, std::memory_order_relaxed);
+    zeroLogicalCount_.store(0, std::memory_order_relaxed);
+    reparseSkipped_.store(0, std::memory_order_relaxed);
+    chainReportCount_.store(0, std::memory_order_relaxed);
+    sweepChangedDirs_.store(0, std::memory_order_relaxed);
+    sweepDeltaBytes_.store(0, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lock{auditMutex_};
+        zeroEntries_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock{emitMutex_};
+        lastChain_.clear();
+    }
     setWorkerCap(kMaxWorkers);
     scanId_ = scanId; // read-only for the rest of the run (workers spawn below)
 
@@ -549,6 +616,19 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     result.errorCount = errorCount_.load(std::memory_order_relaxed);
     result.loadMs = loadMs;
     result.sweepMs = sweepMs;
+    result.zeroLogicalCount = zeroLogicalCount_.load(std::memory_order_relaxed);
+    result.reparseSkipped = reparseSkipped_.load(std::memory_order_relaxed);
+    result.chainReports = chainReportCount_.load(std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lock{emitMutex_};
+        result.sweepDirs = static_cast<std::uint64_t>(allDirs_.size());
+        if (!allDirs_.empty()) {
+            result.rootMaxMtime = allDirs_.front()->maxMtime.load(std::memory_order_relaxed);
+        }
+    }
+    result.sweepChangedDirs = sweepChangedDirs_.load(std::memory_order_relaxed);
+    result.sweepDeltaBytes = sweepDeltaBytes_.load(std::memory_order_relaxed);
+    result.zeroEntries = zeroLogicalEntries();
     loadMs_ = loadMs;
     sweepMs_ = sweepMs;
     emitTelemetry(callbacks, "final");

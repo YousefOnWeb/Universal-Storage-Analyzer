@@ -23,6 +23,24 @@
   backend. A future retry starts from spec-first, not from the
   reverted code.
 
+## Current (2026-10-12) — spec 004 slice 004a (audit instrumentation)
+
+- `ScanEngine` captures size-audit evidence with zero behavior change:
+  every zero-logical file named with backend + physical size (capped
+  2000, counted unbounded), reparse listings counted, live chain
+  reports counted per directory, sweep-vs-chain deltas counted with
+  abs byte delta, root subtree-max mtime tracked. `EngineResult`
+  carries the counters + capped entries + root max mtime;
+  `ScanLogger` writes a `[SizeAudit]` section plus footer provenance
+  (`Total bytes` labeled as logical-size sum; free/available with
+  volume + timestamp).
+- New test `sizeAuditCapturesZeroLogicalFiles` (empty + normal file
+  fixture) green. Suite status: 13/14 — `test_ui` crashes with no
+  output on the clean tree too (pre-existing, unrelated to 004a;
+  verified via stash + rebuild). Next: operator runs one elevated
+  scan and returns the `[SizeAudit]` section; 004b fixes follow from
+  that evidence, not guesses.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

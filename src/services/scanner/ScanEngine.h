@@ -46,6 +46,17 @@ struct EngineDirSummary {
     std::uint32_t folderCount{0};
 };
 
+// One emitted file with logicalSize == 0. Zero can be legitimate
+// (empty files) or a size-source failure — the audit names each one
+// with its backend and physical size so the operator can tell.
+struct ZeroLogicalEntry {
+    std::string pathUtf8{};
+    std::string backend{};
+    std::uint64_t physicalSize{0};
+    bool isReparse{false};
+    bool ownerEmpty{true};
+};
+
 struct EngineResult {
     std::uint64_t fileCount{0};
     std::uint64_t dirCount{0};
@@ -60,7 +71,23 @@ struct EngineResult {
     // Traverse time = durationMs - loadMs - sweepMs.
     std::uint64_t loadMs{0};
     std::uint64_t sweepMs{0};
+    // Size-audit (spec 004a, instrumentation only — no behavior change):
+    // zero-logical files observed, reparse listings skipped from descent,
+    // live chain reports emitted, sweep-vs-chain convergence deltas.
+    std::uint64_t zeroLogicalCount{0};
+    std::uint64_t reparseSkipped{0};
+    std::uint64_t chainReports{0};
+    std::uint64_t sweepDirs{0};
+    std::uint64_t sweepChangedDirs{0};
+    std::uint64_t sweepDeltaBytes{0};
+    // Capped sample of zero-logical files (path, backend, sizes).
+    std::vector<ZeroLogicalEntry> zeroEntries{};
+    // Root subtree-max last-write (Unix seconds, audit only; display
+    // stays object mtime in this spec).
+    std::uint64_t rootMaxMtime{0};
 };
+
+// Size-audit entry list accessor lives on the engine (see above).
 
 struct EngineCallbacks {
     std::function<void(std::vector<EngineNode>)> onBatch{};
@@ -125,6 +152,10 @@ public:
     EngineResult run(const std::filesystem::path& root, const EngineCallbacks& callbacks,
                      const std::string& scanId = {});
 
+    // Size-audit entries (capped): files emitted with logicalSize == 0.
+    // Snapshot after run() returns; valid until the next run().
+    std::vector<ZeroLogicalEntry> zeroLogicalEntries() const;
+
     // Safe from any thread, even while run() blocks another thread.
     // Pause/cancel only touch synchronisation primitives, so the UI may
     // invoke them with a direct connection (no event-loop round trip).
@@ -149,6 +180,7 @@ private:
         std::atomic_uint64_t physical{0};
         std::atomic_uint32_t files{0};
         std::atomic_uint32_t folders{0};
+        std::atomic_uint64_t maxMtime{0}; // subtree-max last-write (audit only)
         DirAcc* parent{nullptr};
         std::uint32_t id{0};
     };
@@ -191,6 +223,19 @@ private:
     std::mutex emitMutex_{}; // serializes all callback invocations
     std::mutex dirsMutex_{}; // guards allDirs_
     std::vector<std::unique_ptr<DirAcc>> allDirs_{};
+    // Size-audit state (spec 004a): counters are atomics (worker hot path),
+    // entries + last-chain map are mutex-guarded (bounded, off the hot path).
+    static constexpr std::size_t kMaxZeroEntries{2000};
+    std::atomic_uint64_t zeroLogicalCount_{0};
+    std::atomic_uint64_t reparseSkipped_{0};
+    std::atomic_uint64_t chainReportCount_{0};
+    std::atomic_uint64_t sweepChangedDirs_{0};
+    std::atomic_uint64_t sweepDeltaBytes_{0};
+    mutable std::mutex auditMutex_{};
+    std::vector<ZeroLogicalEntry> zeroEntries_{};
+    // Last live chain report per directory (for sweep convergence deltas).
+    // Written under emitMutex_ (same serialization as all callbacks).
+    std::unordered_map<std::uint32_t, EngineDirSummary> lastChain_{};
     ThrottlePolicy throttlePolicy_{};
     std::atomic_bool throttleEnabled_{true};
     std::atomic_uint workerCap_{kMaxWorkers};

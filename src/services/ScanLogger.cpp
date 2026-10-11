@@ -122,14 +122,33 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
         << " ms (duration - load - sweep)\n";
     out << "Files:        " << result.fileCount << "\n";
     out << "Directories:  " << result.dirCount << "\n";
-    out << "Total bytes:  " << formatBytes(result.totalBytes) << "\n";
+    out << "Total bytes:  " << formatBytes(result.totalBytes) << " (logical-size sum over emitted files)\n";
     out << "Batches:      " << result.batchCount << " (" << (result.fileCount + result.dirCount) << " records)\n";
-    out << "Errors:       " << result.errorCount << "\n";
+    out << "Errors:       " << result.errorCount << " (each a skipped directory with an OS code in the session log)\n";
 
     double mb = static_cast<double>(result.totalBytes) / (1024.0 * 1024.0);
     double sec = static_cast<double>(result.durationMs) / 1000.0;
     double throughput = sec > 0.0 ? (mb / sec) : 0.0;
     out << "Throughput:   " << QString::number(throughput, 'f', 2) << " MiB/s (logical bytes / duration)\n";
+
+    out << "--------------------------------------------------------------------------------\n";
+    out << "[SizeAudit]\n";
+    out << "ZeroLogical:  " << result.zeroLogicalCount << " files emitted with logicalSize == 0";
+    out << " (showing up to " << result.zeroEntries.size() << ")\n";
+    for (const auto& z : result.zeroEntries) {
+        out << "  ZERO logical=0 allocated=" << z.physicalSize << " backend=" << QString::fromStdString(z.backend)
+            << (z.isReparse ? " reparse=yes" : " reparse=no")
+            << (z.ownerEmpty ? " owner=empty" : " owner=present") << " path="
+            << QString::fromStdString(z.pathUtf8) << "\n";
+    }
+    out << "ReparseSkip:  " << result.reparseSkipped << " reparse listings (listed once, never descended)\n";
+    out << "ChainReport:  " << result.chainReports << " live ancestor-chain summaries emitted\n";
+    out << "SweepDirs:    " << result.sweepDirs << " directories in bulk final sweep\n";
+    out << "SweepChanged: " << result.sweepChangedDirs << " dirs differing from last live report";
+    out << " (abs delta " << result.sweepDeltaBytes << " bytes)\n";
+    out << "RootMaxMtime: " << result.rootMaxMtime << " (subtree-max last-write, Unix seconds; display stays object mtime)\n";
+    out << "FreeSpaceAt:  " << now.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")) << " volume=" << storage.rootPath()
+        << " free=" << storage.bytesFree() << " available=" << storage.bytesAvailable() << "\n";
 
     out << "================================================================================\n";
 

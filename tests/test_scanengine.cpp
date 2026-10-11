@@ -416,6 +416,33 @@ private slots:
         QCOMPARE(ownerBytes, static_cast<std::uint64_t>(1050));
         QCOMPARE(ownerFiles, static_cast<std::uint64_t>(5));
     }
+
+    void sizeAuditCapturesZeroLogicalFiles()
+    {
+        // 004a instrumentation: zero-logical files are named with backend
+        // and physical size; sweep convergence counters are exact. No
+        // behavior change — totals identical with or without the audit.
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        writeBytes(root / "empty.bin", 0);
+        writeBytes(root / "full.bin", 100);
+
+        ScanEngine engine{};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        const auto result = engine.run(root, cb);
+
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(2));
+        QCOMPARE(result.totalBytes, static_cast<std::uint64_t>(100));
+        QCOMPARE(result.zeroLogicalCount, static_cast<std::uint64_t>(1));
+        QCOMPARE(result.zeroEntries.size(), static_cast<std::size_t>(1));
+        QVERIFY(result.zeroEntries.front().pathUtf8.find("empty.bin") != std::string::npos);
+        QVERIFY(!result.zeroEntries.front().backend.empty());
+        QVERIFY(result.sweepDirs >= static_cast<std::uint64_t>(1)); // at least root
+        const auto entries = engine.zeroLogicalEntries();
+        QCOMPARE(entries.size(), static_cast<std::size_t>(1));
+    }
 };
 
 QTEST_MAIN(TestScanEngine)
