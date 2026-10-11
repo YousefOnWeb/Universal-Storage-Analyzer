@@ -99,6 +99,23 @@
   counting, per-gap-directory deltas. Needs GUI totals for the gap
   directories before implementation.
 
+## Current (2026-10-12) — 004b proven complete by spot-check + rescan
+
+- Operator Properties check on two `Call recording *.m4a` files
+  (audit: logical 0 / allocated 0): real sizes 925 KB and 144 KB.
+  Neither appears in any post-004b zero list — level-1 re-stat
+  recovers ordinary readable files completely. The 0/0 remainder is
+  therefore genuinely-empty files, reparse points, or locked files
+  with allocated 0; no third size-source class.
+- Rescan stability (same build, same volume, minutes apart):
+  443.60 → 443.85 GiB (+747 KB drift = live volume writes);
+  `RestatFixed: 1984`; `errors=0`. First scan of the session ran
+  slower (83 s engine, cold OS/volume caches) than the second
+  (26 s) — cache warmth, not a code path difference (`throttled:
+  false` throughout, same backends and counts).
+- Size-source work (spec §4a–§4b) is done. Only 004c counting rules
+  remain before the numbers are fully reconciled.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,
