@@ -4,9 +4,13 @@ High-performance, open-source storage intelligence for Windows, macOS, and Linux
 scan local drives, visualize consumption in a live dual-pane UI, and act on results.
 
 > Current scope: dual-backend scan engine (direct volume reading when
-> elevated, portable enumeration otherwise) → virtualized dual-pane UI →
-> light/dark themes → per-scan logs + session telemetry → headless CLI.
-> Cloud protocols, charts, dedup, and exports arrive in Milestones 2–4.
+> elevated, portable enumeration otherwise) → virtualized dual-pane UI with
+> treemap/bars/pie + Extensions/Top Files/Users/Age analytics → light/dark
+> themes → per-scan logs + session telemetry → headless CLI → disk-busy
+> throttle + options dialog.
+> Milestone 2 analytics are implemented on `feature/m2-analytics`
+> (unreleased); cloud protocols, dedup, and exports arrive in
+> Milestones 3–4.
 
 ## Quick start (Windows + MSYS2 UCRT64)
 
@@ -35,11 +39,15 @@ Linux/macOS: install `qt6-base` via your package manager and drop the
 src/app/        bootstrap (main.cpp, CLI modes, session logging)
 src/domain/     reserved for Qt-free business rules (currently empty:
                 scan state lives in ScanEngine + FileSystemModel)
-src/services/   infrastructure (scan engine, Qt bridge, scan logger, SQLite)
-src/models/     QAbstractItemModel projections (tree + details)
-src/ui/         Widgets rendering (MainWindow, ThemeManager)
+src/services/   infrastructure (scan engine + Analytics/ThrottlePolicy/
+                TreemapLayout, Qt bridge, OwnerResolver, DiskTelemetry,
+                scan logger, SQLite)
+src/models/     QAbstractItemModel projections (tree + details +
+                StatsTableModel + TreeFilterProxy)
+src/ui/         Widgets rendering (MainWindow, ThemeManager, TreemapWidget,
+                BarWidget, PieWidget, OptionsDialog)
 src/resources/  styles + migrations + Qt resource bundle
-tests/          QtTest suites (CTest labels: unit, integration)
+tests/          QtTest suites (CTest labels: unit, integration, ui)
 docs/           product / architecture / specs / runbooks / progress
 scripts/        verify + smoke-test entry points
 .github/        ci / release / nightly workflows
@@ -73,5 +81,5 @@ scripts/        verify + smoke-test entry points
 - Product: `docs/product/vision.md`, `user-flows.md`, `non-goals.md`
 - Architecture: `docs/architecture/overview.md`, `module-boundaries.md`,
   `data-model.md`, `ipc-contracts.md`
-- Spec: `docs/specs/001-sprint1-foundation.md`
+- Spec: `docs/specs/001-sprint1-foundation.md`, `docs/specs/002-milestone2-analytics.md`
 - Progress: `docs/progress.md`

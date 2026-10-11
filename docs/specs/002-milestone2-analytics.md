@@ -217,3 +217,12 @@ Scan pipeline and batching, error-severity contract, CLI modes (they
 respect options but gain no charts), Details columns, DB schema,
 packaging/signing. `docs/product/non-goals.md` updates per slice as
 placeholders go live.
+
+> Post-approval perf amendments (landed on `feature/m2-analytics`,
+> within the §5 perf budget — not scope changes): batch cadence is
+> 512 nodes / 250 ms with parent-sorted rechunk (not small ungrouped
+> flushes); per-worker ancestor aggregation merged at flush; final
+> directory totals delivered as one bulk sweep event; top-N paths
+> converted lazily for heap members only; no finish-time re-sort
+> (proxies stay dynamically unsorted from scan start; header clicks
+> sort on demand).

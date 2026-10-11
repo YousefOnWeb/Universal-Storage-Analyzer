@@ -32,8 +32,9 @@ All notable user-facing changes are recorded here.
   throughput; pause/cancel now take effect immediately mid-scan.
 - Directory opens use backend record tokens (O(1)) instead of path
   descent; model indexes resolve in O(1) via stored rows.
-- Summary delivery throttled (leaf reports + final sweep) with coalesced,
-  per-tick-capped view notifications; live resorting pauses during scans.
+- Summary delivery throttled (ancestor-chain reports on time flushes
+  only + one bulk final sweep) with coalesced, per-tick-capped view
+  notifications; live resorting pauses during scans (no finish re-sort).
 
 ### Fixed
 

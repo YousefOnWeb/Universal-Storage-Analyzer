@@ -17,9 +17,25 @@
 2. Progress, errors, and the final summary stream on stdout.
 3. A per-scan diagnostic log is written unless `--no-log` is given.
 
-## Deferred (Milestones 2–4)
+## F2 — Drill into charts & analytics (Milestone 2, implemented on `feature/m2-analytics`)
 
-- F2 drill into treemap/pie/bar charts.
+1. With scan results in the model, switch right-side tabs: treemap
+   (squarified tiles over the selected subtree's children; click
+   selects in the tree, double-click descends), Bars (top-20 children),
+   Pie (volume total vs free vs top children via `QStorageInfo`).
+2. Open Extensions / Top Files / Users / Age panes: live during scans
+   (≤1 Hz), exact at finish. Click an extension row to filter the tree
+   to `\.ext$` (parents kept); click again or Esc to clear. Click a top
+   file to select it in the tree (parents expand).
+3. Open Options: age buckets (CSV days), top-N size, startup target
+   (`last|home|ask`), export stub (disabled), throttle toggle. Bucket
+   changes re-aggregate instantly from in-memory mtimes (no I/O).
+4. When the disk saturates, the status bar shows `Throttled (disk
+   busy)`; transitions are logged. `(unknown)` owner rows state
+   backend coverage honestly.
+
+## Deferred (Milestones 3–4)
+
 - F3 duplicate search + hardlink dedup.
 - F4 batch rename/archive/delete + cleanup wizard.
 - F5 save/load index snapshots, diff growth, export PDF/Excel/CSV.

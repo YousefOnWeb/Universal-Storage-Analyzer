@@ -17,8 +17,18 @@ scan blocks the worker thread (no event-loop round trip).
 ## Engine → UI (events)
 
 - `scanStarted(taskId, targetPath)` — model resets root.
-- `nodesDiscovered(taskId, QVector<FileRecord> batch)` — ≤500/batch.
-- `branchMetricsUpdated(taskId, BranchMetrics)` — directory rollups.
+- `nodesDiscovered(taskId, QVector<FileRecord> batch)` — ≤512/batch,
+  parent-sorted rechunk, 250 ms flush cadence.
+- `branchMetricsUpdated(taskId, BranchMetrics)` — live directory
+  rollups (replace semantics; best-effort during scan).
+- `sweepUpdated(taskId, QVector<BranchMetrics>)` — exact finals for
+  every directory as ONE bulk delivery after workers join; the model
+  applies values immediately and repaints once via its coalescer.
+- `analyticsUpdated(taskId, AnalyticsData)` — extensions / top files /
+  age buckets / owners, absolute replace-semantics; live ≤1 Hz plus
+  one exact final.
+- `throttleChanged(taskId, throttled)` — disk-busy gate transitions
+  only (engage after 3 bad samples, release after 10 clean).
 - `scanProgress(taskId, currentPath)` — status bar (throttled 1/2000 entries).
 - `scanFinished(taskId, files, dirs, bytes)` / `errorOccurred(taskId, msg, fatal)`
   (`fatal` = the scan cannot proceed, e.g. missing/non-directory target;

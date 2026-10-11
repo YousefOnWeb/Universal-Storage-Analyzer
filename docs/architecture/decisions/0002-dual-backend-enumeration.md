@@ -17,12 +17,15 @@ root, coordinated by a `ScanEngine` over a `BlockingQueue` work pool:
   (NtQueryDirectoryFile with large local / small remote buffers on
   Windows, readdir + lstat elsewhere). Always available.
 - Aggregation ownership: the engine accumulates per-directory totals
-  and propagates them up the ancestor chain itself (atomics for global
-  counters, and lock-free atomic `DirAcc` nodes for the tree). Consumers store absolute
+  and propagates them up the ancestor chain itself (per-worker local
+  maps merged into shared atomics at each flush; lock-free atomic
+  `DirAcc` nodes for the tree). Consumers store absolute
   summaries verbatim and never add — this ended a latent double-count
   where per-file propagation and additive summaries overlapped.
-- UI delivery stays exactly as before: node batches (<=500) and
-  per-directory metric updates over queued signals; backends are
+- UI delivery: node batches (512 / 250 ms, parent-sorted rechunk) and
+  per-directory metric updates over queued signals; live summaries are
+  best-effort with exact finals in one bulk sweep; analytics snapshots
+  ride alongside (≤1 Hz live + exact final); backends are
   invisible above the engine.
 
 Consequences: the fast path only engages when elevated on a supported

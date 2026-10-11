@@ -341,7 +341,7 @@ void MainWindow::onStartStop()
         skippedOverflow_ = 0;
         // Freeze live resorting/filtering while rows stream in: per-insert
         // re-sorts over a million-row model would stall the event loop.
-        // One full re-sort happens on finish instead.
+        // Proxies stay dynamically unsorted (no finish-time re-sort either).
         treeProxy_->setDynamicSortFilter(false);
         detailsProxy_->setDynamicSortFilter(false);
         startStopBtn_->setText(QStringLiteral("Stop"));

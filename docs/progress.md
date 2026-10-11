@@ -1,5 +1,28 @@
 # Progress
 
+## Current (2026-10-11) — branch `feature/m2-analytics` at `da8bf33`
+
+- Milestone 2 analytics (spec 002) implemented and verified on this
+  branch (unreleased, unmerged): engine accumulators, treemap/bars/pie,
+  four analytics panes, owner resolution, telemetry + throttle, options
+  dialog. 14/14 suites green (7 unit + 6 integration + 1 ui), lint
+  clean, `--smoke-test` / `--headless-check` exit 0.
+- Post-M2 perf pass (same branch, after the M2 completion note below):
+  batches 512 nodes / 250 ms with parent-sorted rechunk (was 128 /
+  100 ms + per-dir forced flushes); finish-time re-sort removed
+  (saves ~2.8 s on 2M rows — proxies stay unsorted live, header clicks
+  sort on demand); final directory totals as one bulk `onSweep` event
+  (was one queued signal per directory); top-N full paths converted
+  lazily only for heap members; ancestor totals aggregated per worker
+  and merged at flush. Measured C: 52.6 s → 31.2 s click-to-Ready.
+- Spec 003 (MFT streaming) was drafted and prototyped, then reverted
+  (`git reset --hard da8bf33`): streaming reader + single map +
+  `DirectMftFinder` never engaged live (volume-path and root-record
+  bugs, fell back to `NativeDirectory`). No streaming files remain in
+  the tree; `MftFinder` (image + triple map) is still the DirectMft
+  backend. A future retry starts from spec-first, not from the
+  reverted code.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,
@@ -21,7 +44,7 @@
 ## Completed (2026-10-09) — full revision pass over the scan engine
 
 Fourteen atomic commits, each verified (build + full suite green before
-commit). 9/9 suites green (3 unit + 5 integration + 1 ui), lint clean,
+commit). 14/14 suites green (7 unit + 6 integration + 1 ui), lint clean,
 `--smoke-test`/`--headless-check` verified live.
 
 - Correctness: NTFS `$FILE_NAME` allocated-size offset (+40, was reading
@@ -118,12 +141,13 @@ commit). 9/9 suites green (3 unit + 5 integration + 1 ui), lint clean,
 
 ## Next tasks
 
-- Merge `feature/scan-engine` into `main` (rebase, PR, green CI incl.
-  lint/ui jobs), then delete `feature/scan-engine` + stale
-  `feature/scan-logging`.
-- Milestone 2: treemap/pie/bar charts + Extensions/Users/Age/Top analytics
-  — written spec + approved plan before code (tabs already stubbed).
-- Milestone 2: VFS + SSH/S3/Azure/WebDAV read paths behind `IScannerService`.
+- Merge `feature/m2-analytics` into `main` (rebase, PR, green CI incl.
+  lint/ui jobs), then delete the branch + stale `feature/scan-engine`
+  / `feature/scan-logging` if still present.
+- Milestone 3: VFS + SSH/S3/Azure/WebDAV read paths behind `IScannerService`.
+- 3D treemap (follow-on to spec 002 §2, needs its own justification
+  per AGENTS.md) or MFT streaming retry (spec-first; the reverted
+  003 prototype is not a base).
 - Harden: pause/resume button, error rows for denied paths, export stubs live.
 - Follow-ups: elevated DirectMFT proof scan; clang-format adoption;
   `loadVolume` decomposition; signing/attestations.
