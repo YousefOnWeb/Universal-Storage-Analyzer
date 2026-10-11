@@ -61,4 +61,12 @@ private:
 // NTFS volume. Always false on other platforms.
 bool isDirectScanAvailable(const std::filesystem::path& root);
 
+#ifdef _WIN32
+// Live single-file stat for zero-logical volume records (spec 004b).
+// GetFileAttributesEx opens nothing, so exclusive locks (paging,
+// hibernation, registry hives) do not matter. Returns true with the
+// live logical size; false leaves the record values in place.
+bool nativeRestatSize(const std::filesystem::path& p, std::uint64_t& sizeOut);
+#endif
+
 } // namespace usa::scanner

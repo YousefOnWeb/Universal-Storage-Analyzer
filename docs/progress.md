@@ -41,6 +41,30 @@
   scan and returns the `[SizeAudit]` section; 004b fixes follow from
   that evidence, not guesses.
 
+## Current (2026-10-12) — spec 004 slice 004b (native re-stat for zero-record sizes)
+
+- Audit evidence (elevated DirectMft proof scan, 1.96M records):
+  16,661 zero-logical files; `pagefile.sys` logical 0 / allocated
+  ~14.9 GB, `hiberfil.sys` 0 / ~6.8 GB, `swapfile.sys` 0 / 16 MB,
+  report `.txt` files 0 / 0, VM disk images 0 / 0; 904 reparse
+  listings; `errors=0`. Verdict: record size fields are zero/stale
+  for locked system files and multi-extent streams — not a counting
+  bug, a size-source gap (spec §4b path).
+- Fix: `MftFinder::findNext` re-stats zero-logical file leaves via
+  `GetFileAttributesExW` (opens nothing, locks do not matter) and
+  adopts the live size only when nonzero; reparse points and
+  directories never re-statted. New `DirEntry::sizeRestated` flag;
+  engine counts fixes into `EngineResult::restatFixed`; audit still
+  names every file that remains zero. Helper exposed as
+  `usa::scanner::nativeRestatSize` (Windows-only) with a
+  no-elevation unit test (live temp-file size, directory refusal,
+  missing-path failure).
+- Suite status: 14/14 green (the earlier `test_ui` crash was a stale
+  binary from the stash dance — full rebuild passes). Next: operator
+  runs one elevated scan; `RestatFixed` + shrunken `ZeroLogical`
+  list prove the fix, and the remaining zero list scopes any
+  extension-record follow-up.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

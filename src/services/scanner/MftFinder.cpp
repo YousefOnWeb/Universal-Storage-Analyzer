@@ -332,6 +332,24 @@ bool getMftExtents(HANDLE volume, std::uint64_t clusterSize, std::vector<MftExte
 
 } // namespace
 
+#ifdef _WIN32
+bool nativeRestatSize(const std::filesystem::path& p, std::uint64_t& sizeOut)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (GetFileAttributesExW(p.native().c_str(), GetFileExInfoStandard, &fad) == 0) {
+        return false;
+    }
+    if ((fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return false;
+    }
+    ULARGE_INTEGER u{};
+    u.LowPart = fad.nFileSizeLow;
+    u.HighPart = fad.nFileSizeHigh;
+    sizeOut = u.QuadPart;
+    return true;
+}
+#endif
+
 MftFinder::MftFinder() = default;
 MftFinder::~MftFinder() = default;
 
@@ -812,6 +830,19 @@ bool MftFinder::findNext()
         cur.lastWriteTs = rec.lastWriteTs;
         cur.ownerId = rec.hasOwner ? std::to_string(rec.ownerId) : std::string{};
         cur.backendToken = rec.number;
+        if (!cur.isDirectory && !cur.isReparsePoint && cur.logicalSize == 0) {
+            // Record size fields are zero/stale (locked system files keep
+            // $FILE_NAME real size at 0; multi-extent streams live in
+            // extension records): ask the live filesystem, which stats
+            // without opening the file, so locks do not matter. Adopted
+            // only when nonzero — a failure keeps the record values and
+            // the engine's size-audit names the file with its OS state.
+            std::uint64_t liveSize{0};
+            if (nativeRestatSize(cur.fullPath, liveSize) && liveSize > 0) {
+                cur.logicalSize = liveSize;
+                cur.sizeRestated = true;
+            }
+        }
         current_ = std::move(cur);
         return true;
     }

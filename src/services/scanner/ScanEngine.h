@@ -82,6 +82,9 @@ struct EngineResult {
     std::uint64_t sweepDeltaBytes{0};
     // Capped sample of zero-logical files (path, backend, sizes).
     std::vector<ZeroLogicalEntry> zeroEntries{};
+    // Files whose zero/stale record size was replaced by a live native
+    // stat (spec 004b). Counted, not listed (they are no longer zero).
+    std::uint64_t restatFixed{0};
     // Root subtree-max last-write (Unix seconds, audit only; display
     // stays object mtime in this spec).
     std::uint64_t rootMaxMtime{0};
@@ -229,6 +232,7 @@ private:
     std::atomic_uint64_t zeroLogicalCount_{0};
     std::atomic_uint64_t reparseSkipped_{0};
     std::atomic_uint64_t chainReportCount_{0};
+    std::atomic_uint64_t restatFixed_{0};
     std::atomic_uint64_t sweepChangedDirs_{0};
     std::atomic_uint64_t sweepDeltaBytes_{0};
     mutable std::mutex auditMutex_{};

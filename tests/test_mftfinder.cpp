@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <string>
 
 #include "../src/services/scanner/DirectoryFinder.h"
 #include "../src/services/scanner/MftFinder.h"
@@ -341,6 +343,30 @@ private slots:
     }
 
 #ifdef _WIN32
+    void nativeRestatReportsLiveFileSize()
+    {
+        // Spec 004b helper: live stat without opening the file. Runs
+        // without elevation on any Windows machine (temp dir file).
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path p{tmp.filePath(QStringLiteral("restat.bin")).toStdWString()};
+        {
+            std::ofstream f{p, std::ios::binary};
+            const std::string data(12345, 'x');
+            f.write(data.data(), static_cast<std::streamsize>(data.size()));
+        }
+        std::uint64_t size{0};
+        QVERIFY(usa::scanner::nativeRestatSize(p, size));
+        QCOMPARE(size, static_cast<std::uint64_t>(12345));
+        // Directories are refused (callers only re-stat file leaves).
+        std::uint64_t dirSize{0};
+        QVERIFY(!usa::scanner::nativeRestatSize(std::filesystem::path{tmp.path().toStdWString()}, dirSize));
+        // Missing paths fail instead of reporting zero as valid.
+        std::uint64_t missing{0};
+        QVERIFY(!usa::scanner::nativeRestatSize(
+            std::filesystem::path{(tmp.path() + QStringLiteral("/nope.bin")).toStdWString()}, missing));
+    }
+
     void readsLiveVolumeWhenElevated()
     {
         const std::filesystem::path sysRoot{L"C:\\Windows\\System32"};

@@ -27,6 +27,11 @@ struct DirEntry {
     // without path resolution (e.g. the volume record number when produced
     // by the direct reader). Zero when the backend offers none.
     std::uint64_t backendToken{0};
+    // Set by the direct volume reader when the record's own size fields
+    // were zero/stale and a live native stat supplied the logical size
+    // instead (spec 004b: locked system files, multi-extent streams).
+    // Always false from every other backend.
+    bool sizeRestated{false};
 };
 
 enum class BackendKind { NativeDirectory, DirectMft };

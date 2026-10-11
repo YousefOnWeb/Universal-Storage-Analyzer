@@ -429,9 +429,13 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
                     }
                 }
                 // Size-audit (004a): name every zero-logical file with its
-                // backend and physical size; count reparse listings.
+                // backend and physical size; count reparse listings and
+                // native re-stats (004b) that already repaired the size.
                 if (entry.isReparsePoint) {
                     reparseSkipped_.fetch_add(1, std::memory_order_relaxed);
+                }
+                if (entry.sizeRestated) {
+                    restatFixed_.fetch_add(1, std::memory_order_relaxed);
                 }
                 if (entry.logicalSize == 0) {
                     zeroLogicalCount_.fetch_add(1, std::memory_order_relaxed);
@@ -500,6 +504,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     zeroLogicalCount_.store(0, std::memory_order_relaxed);
     reparseSkipped_.store(0, std::memory_order_relaxed);
     chainReportCount_.store(0, std::memory_order_relaxed);
+    restatFixed_.store(0, std::memory_order_relaxed);
     sweepChangedDirs_.store(0, std::memory_order_relaxed);
     sweepDeltaBytes_.store(0, std::memory_order_relaxed);
     {
@@ -619,6 +624,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     result.zeroLogicalCount = zeroLogicalCount_.load(std::memory_order_relaxed);
     result.reparseSkipped = reparseSkipped_.load(std::memory_order_relaxed);
     result.chainReports = chainReportCount_.load(std::memory_order_relaxed);
+    result.restatFixed = restatFixed_.load(std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock{emitMutex_};
         result.sweepDirs = static_cast<std::uint64_t>(allDirs_.size());
