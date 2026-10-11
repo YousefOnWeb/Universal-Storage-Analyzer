@@ -65,6 +65,23 @@
   list prove the fix, and the remaining zero list scopes any
   extension-record follow-up.
 
+## Current (2026-10-12) — spec 004 slice 004b2 (dirent fallback for locked files)
+
+- Proof scan with 004b (DirectMft, 1.96M records): total 321.95 →
+  398.18 GiB (+76 GiB); `RestatFixed: 1979`; report `.txt` files and
+  the VM `.vmdk` repaired. Still zero: `pagefile.sys` (alloc ~14.9
+  GB), `hiberfil.sys` (~6.8 GB), `swapfile.sys` (16 MB) — attribute
+  stats fail on exclusively locked files too — plus 14,680
+  allocated-0 files (lock/marker/placeholder pattern, plausibly
+  genuinely empty) and one `.vmsd`.
+- Fix: second-level fallback gated on `physicalSize > 0` (giants only,
+  empty files cost nothing): enumerate the parent directory and match
+  by name, adopting the entry size when nonzero. New
+  `usa::scanner::nativeDirentSize` (Windows-only) with a no-elevation
+  unit test. Expectation: ~45 GB of the remaining gap closes; the
+  0/0 remainder is then either genuinely empty or individually named
+  in the audit for the next slice.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

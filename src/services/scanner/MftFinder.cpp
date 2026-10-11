@@ -1,4 +1,5 @@
 #include "MftFinder.h"
+#include "DirectoryFinder.h"
 #include "MftRecord.h"
 
 #include <algorithm>
@@ -347,6 +348,30 @@ bool nativeRestatSize(const std::filesystem::path& p, std::uint64_t& sizeOut)
     u.HighPart = fad.nFileSizeHigh;
     sizeOut = u.QuadPart;
     return true;
+}
+
+bool nativeDirentSize(const std::filesystem::path& p, std::uint64_t& sizeOut)
+{
+    const std::filesystem::path parent = p.parent_path();
+    if (parent.empty()) {
+        return false;
+    }
+    DirectoryFinder dir{};
+    if (!dir.open(parent)) {
+        return false;
+    }
+    const std::wstring want = p.filename().native();
+    while (dir.findNext()) {
+        const DirEntry& e = dir.current();
+        if (_wcsicmp(e.fullPath.filename().native().c_str(), want.c_str()) == 0) {
+            if (e.isDirectory) {
+                return false;
+            }
+            sizeOut = e.logicalSize;
+            return true;
+        }
+    }
+    return false;
 }
 #endif
 
@@ -841,6 +866,17 @@ bool MftFinder::findNext()
             if (nativeRestatSize(cur.fullPath, liveSize) && liveSize > 0) {
                 cur.logicalSize = liveSize;
                 cur.sizeRestated = true;
+            } else if (cur.physicalSize > 0) {
+                // Attribute-level stats also fail on exclusively locked
+                // files (paging, hibernation): fall back to enumerating
+                // the parent directory, which reports sizes without
+                // opening anything. Gated on allocated > 0 so the
+                // thousands of genuinely-empty files cost nothing.
+                std::uint64_t direntSize{0};
+                if (nativeDirentSize(cur.fullPath, direntSize) && direntSize > 0) {
+                    cur.logicalSize = direntSize;
+                    cur.sizeRestated = true;
+                }
             }
         }
         current_ = std::move(cur);

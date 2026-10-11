@@ -367,6 +367,26 @@ private slots:
             std::filesystem::path{(tmp.path() + QStringLiteral("/nope.bin")).toStdWString()}, missing));
     }
 
+    void nativeDirentFindsEntriesByName()
+    {
+        // Spec 004b second level: parent-directory enumeration sizes
+        // files even attribute stats cannot see. No elevation needed.
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path p{tmp.filePath(QStringLiteral("dirent.bin")).toStdWString()};
+        {
+            std::ofstream f{p, std::ios::binary};
+            const std::string data(777, 'y');
+            f.write(data.data(), static_cast<std::streamsize>(data.size()));
+        }
+        std::uint64_t size{0};
+        QVERIFY(usa::scanner::nativeDirentSize(p, size));
+        QCOMPARE(size, static_cast<std::uint64_t>(777));
+        std::uint64_t missing{0};
+        QVERIFY(!usa::scanner::nativeDirentSize(
+            std::filesystem::path{(tmp.path() + QStringLiteral("/nope.bin")).toStdWString()}, missing));
+    }
+
     void readsLiveVolumeWhenElevated()
     {
         const std::filesystem::path sysRoot{L"C:\\Windows\\System32"};

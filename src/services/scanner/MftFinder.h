@@ -67,6 +67,12 @@ bool isDirectScanAvailable(const std::filesystem::path& root);
 // hibernation, registry hives) do not matter. Returns true with the
 // live logical size; false leaves the record values in place.
 bool nativeRestatSize(const std::filesystem::path& p, std::uint64_t& sizeOut);
+
+// Parent-directory enumeration for files even attribute stats cannot
+// see (exclusively locked system files). Opens the parent only and
+// matches by file name (case-insensitive, volume semantics). Returns
+// true with the enumerated logical size.
+bool nativeDirentSize(const std::filesystem::path& p, std::uint64_t& sizeOut);
 #endif
 
 } // namespace usa::scanner
