@@ -82,6 +82,23 @@
   0/0 remainder is then either genuinely empty or individually named
   in the audit for the next slice.
 
+## Current (2026-10-12) — 004b2 proven by elevated scan
+
+- Proof scan with 004b2 (DirectMft, 1.96M records, `RestatFixed:
+  1982`): total 398.18 → **443.60 GiB** (+45.4 GiB, exactly the
+  locked-file class); `pagefile.sys` / `hiberfil.sys` / `swapfile.sys`
+  gone from the zero list; `ZeroLogical: 14680` (reparse listings +
+  allocated-0 files). Volume used space is 446.5 GiB, so the logical
+  sum now covers 99.4% of it — totals are volumetrically reconciled.
+- Remaining zero list: one `.vmsd` (allocated 0, likely genuinely
+  empty — operator spot-check pending), lock/marker/placeholder
+  files, junction points (spec 005 grouping). `.m4a` call recordings
+  at 0/0 need one Properties spot-check to rule out hidden data.
+- Next slice 004c (counting rules): −51k files / +5.6k folders vs
+  reference — hardlink/multi-name records, junction descent and
+  counting, per-gap-directory deltas. Needs GUI totals for the gap
+  directories before implementation.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,
