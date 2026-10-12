@@ -155,6 +155,32 @@
   and 006 (columns/formatting/summaries) own the UI-restructuring
   half of the comparison.
 
+## Current (2026-10-12) — scan-time variance resolved (environmental)
+
+- Six same-binary (004c) C: scans, identical ~2.017M rows, `errors=0`,
+  no throttle transitions, no downgrades in either session:
+  engine 40.4 / 29.1 / 31.0 / 54.7 / **18.5** / 50.0 s;
+  traverse 35.4 / 24.5 / 25.7 / 50.1 / **13.9** / 45.3 s.
+- Decisive facts (no rollback needed — it would be confounded by the
+  same variance, and state is safe on `backup/004c-accepted` either way):
+  1. Scans 3/4/5 ran back-to-back in ONE process (pid 34516), same
+     binary, same volume, 12-minute window: 31 → 55 → 19 s. Nothing
+     in our code differs between them.
+  2. The 18.5 s run is the fastest C: scan ever recorded — WITH 004c
+     code. A hot-path regression cannot lower the floor.
+  3. Volume-load phase is flat (3.8–5.2 s) across all six runs; 004c's
+     link expansion lives in that phase. The variance lives entirely
+     in traverse (per-batch time 3.5 vs 11.4 ms for identical ~460-row
+     batches — workers stall on something outside our code).
+- Verdict: 004b/004c exonerated. Cause class is machine-state variance
+  (competing disk I/O, CPU contention, thermal/power limits, cache
+  warmth — e.g. the earlier 83 s cold-first-scan vs 26 s warm pattern).
+  Our own throttle never fired because it samples the target disk and
+  the disk was not the saturated resource in these runs.
+- Optional follow-up (not a gate): log raw disk samples (1 Hz) to the
+  session log so future slow runs self-diagnose disk-busy vs CPU-side;
+  today only the policy verdict (`throttled:false`) is recorded.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,
