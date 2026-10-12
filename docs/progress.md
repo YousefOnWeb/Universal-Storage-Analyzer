@@ -181,6 +181,15 @@
   session log so future slow runs self-diagnose disk-busy vs CPU-side;
   today only the policy verdict (`throttled:false`) is recorded.
 
+## Current (2026-10-12) — disk-sample log hardening (done)
+
+- `LocalScannerWorker::applyThrottleSample` logs every raw sample as
+  one JSON line (`scan_id`, `available`, `latencyMs`, `queueDepth`,
+  `activePct`) at the sampler's 1 Hz cadence, scan-bounded
+  (start/stop with the scan). Task id is mutex-guarded across the
+  telemetry/worker threads. 14/14 green, lint clean, no test changes
+  (log lines only).
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

@@ -35,6 +35,27 @@ void LocalScannerWorker::applyThrottleSample(const usa::DiskSample& sample)
     in.queueDepth = sample.queueDepth;
     in.activePct = sample.activePct;
     engine_.applyThrottleSample(in);
+    // Raw sample log (spec 004 hardening): the policy verdict alone
+    // cannot tell disk-busy from CPU-side stalls after the fact. One
+    // line/sec during scans only (the sampler runs scan-bounded); the
+    // task id is mutex-guarded because samples arrive on the telemetry
+    // thread while scans start/finish on this thread.
+    QString task{};
+    {
+        std::lock_guard<std::mutex> lock{pendingMutex_};
+        task = activeTaskId_;
+    }
+    if (sample.available) {
+        qInfo().noquote() << QStringLiteral("{\"scan_id\":\"%1\",\"disk\":{\"available\":true,"
+                                             "\"latencyMs\":%2,\"queueDepth\":%3,\"activePct\":%4}}")
+                                 .arg(task.isEmpty() ? QStringLiteral("none") : task)
+                                 .arg(sample.latencyMs, 0, 'f', 1)
+                                 .arg(sample.queueDepth, 0, 'f', 2)
+                                 .arg(sample.activePct, 0, 'f', 1);
+    } else {
+        qInfo().noquote() << QStringLiteral("{\"scan_id\":\"%1\",\"disk\":{\"available\":false}}")
+                                 .arg(task.isEmpty() ? QStringLiteral("none") : task);
+    }
 }
 
 void LocalScannerWorker::applyOptions(const QString& ageBucketsCsv, int topN,
@@ -69,6 +90,10 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     }
 
     emit scanStarted(taskId, targetPath);
+    {
+        std::lock_guard<std::mutex> lock{pendingMutex_};
+        activeTaskId_ = taskId;
+    }
 
 #ifdef _WIN32
     const std::filesystem::path root{targetPath.toStdWString()};
@@ -220,6 +245,10 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
     }
     if (enableLogging) {
         ScanLogger::writeLog(taskId, targetPath, result);
+    }
+    {
+        std::lock_guard<std::mutex> lock{pendingMutex_};
+        activeTaskId_.clear();
     }
     scanActive_.store(false, std::memory_order_release);
     emit scanFinished(taskId, result.fileCount, result.dirCount, result.totalBytes);

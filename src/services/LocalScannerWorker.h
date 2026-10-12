@@ -64,4 +64,7 @@ private:
     OwnerResolver resolver_;
     std::mutex pendingMutex_;
     std::atomic<bool> scanActive_{false};
+    // Owning scan for disk-sample log lines (see applyThrottleSample).
+    // Written here, read on the telemetry thread: guard with pendingMutex_.
+    QString activeTaskId_{};
 };
