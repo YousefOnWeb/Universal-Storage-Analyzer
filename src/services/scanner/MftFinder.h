@@ -1,12 +1,14 @@
 #pragma once
 
 #include "Finder.h"
+#include "MftRecord.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace usa::scanner {
@@ -27,6 +29,15 @@ public:
     MftFinder();
     ~MftFinder() override;
 
+    // One directory row: a record plus which of its $FILE_NAME links
+    // names it here (hardlinked files appear once per link, spec 004c).
+    // nameIdx indexes MftRecord::fileNames; UINT32_MAX selects the
+    // legacy primary name (records parsed before links were kept).
+    struct ChildRef {
+        std::uint32_t number{0};
+        std::uint32_t nameIdx{UINT32_MAX};
+    };
+
     bool open(const std::filesystem::path& dir, std::uint64_t tokenHint = 0) override;
     bool findNext() override;
     const DirEntry& current() const override { return current_; }
@@ -40,6 +51,9 @@ public:
     bool loadVolume(const std::filesystem::path& anyPathOnVolume);
     std::size_t recordCount() const;
     bool volumeLoaded() const;
+    // Extra directory rows from multi-link records (hardlinks): total
+    // child links minus one row per record. Zero when no volume loaded.
+    std::uint64_t extraNameLinks() const;
     // Human-readable reason for the most recent loadVolume() failure
     // (step name + Win32 error). Empty when the last load succeeded.
     std::string lastError() const override { return lastError_; }
@@ -50,7 +64,7 @@ private:
     std::shared_ptr<SharedVolume> volume_{};
     std::filesystem::path openedPath_{};
     std::uint32_t openedRecord_{0};
-    std::vector<std::uint32_t> children_{};
+    std::vector<ChildRef> children_{};
     std::size_t position_{0};
     bool enumerationStarted_{false};
     DirEntry current_{};
@@ -74,5 +88,13 @@ bool nativeRestatSize(const std::filesystem::path& p, std::uint64_t& sizeOut);
 // true with the enumerated logical size.
 bool nativeDirentSize(const std::filesystem::path& p, std::uint64_t& sizeOut);
 #endif
+
+// Expands per-name parent links: one ChildRef per real $FILE_NAME
+// entry (DOS aliases suppressed when the record has any real name).
+// Skips the volume root record. Returns extra rows beyond one per
+// record (the hardlink count). Pure function for unit testing.
+std::uint64_t buildChildLinks(const std::vector<detail::MftRecord>& records,
+                              std::uint32_t rootNumber,
+                              std::unordered_map<std::uint32_t, std::vector<MftFinder::ChildRef>>& out);
 
 } // namespace usa::scanner

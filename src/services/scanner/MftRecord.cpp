@@ -215,6 +215,22 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                         haveName = true;
                     }
                 }
+                if (fnNameLen > 0
+                    && nameOff + static_cast<std::size_t>(fnNameLen) * 2 <= recordSize) {
+                    // Every link is kept (spec 004c): hardlinked files
+                    // carry one $FILE_NAME per directory entry, and each
+                    // entry counts where enumerated. DOS aliases ride
+                    // along; the finder suppresses them when a real name
+                    // exists (same rule as the primary fields above).
+                    MftRecord::FileNameEntry fn{};
+                    fn.parentNumber = parentNum;
+                    fn.parentSequence = parentSeq;
+                    fn.name.assign(reinterpret_cast<const wchar_t*>(p + nameOff), fnNameLen);
+                    fn.realSize = realSize;
+                    fn.flags = readU32(p + cstart + 56);
+                    fn.dosAlias = dosAlias;
+                    rec.fileNames.push_back(std::move(fn));
+                }
             }
         } else if (type == 0x80) { // $DATA (both unnamed and named, like WofCompressedData)
             hasAnyData = true;

@@ -387,6 +387,81 @@ private slots:
             std::filesystem::path{(tmp.path() + QStringLiteral("/nope.bin")).toStdWString()}, missing));
     }
 
+    void parsesMultiNameRecordKeepsAllLinks()
+    {
+        // Hardlinked files carry one $FILE_NAME per directory entry.
+        // Append a second Win32 link (parent 100, "link2") at 226 and
+        // move the fixture's $DATA (36 bytes) to 326.
+        auto buf = makeFileRecord();
+        std::copy(buf.begin() + 226, buf.begin() + 262, buf.begin() + 326);
+        putU32(buf, 226, 0x30);
+        putU32(buf, 230, 100); // 24 header + 76 content
+        buf[234] = 0; // resident
+        buf[235] = 0; // unnamed
+        putU32(buf, 242, 76); // content length
+        putU16(buf, 246, 24); // content offset (attr + 20)
+        const std::size_t c = 226 + 24;
+        putU64(buf, c + 0, static_cast<std::uint64_t>(100) | (static_cast<std::uint64_t>(5) << 48));
+        putU64(buf, c + 24, kTestFiletime);
+        putU64(buf, c + 40, 16384);
+        putU64(buf, c + 48, 12345);
+        putU32(buf, c + 56, 0x20);
+        buf[c + 64] = 5;
+        buf[c + 65] = 1; // Win32 namespace
+        const char link[] = "link2";
+        for (int i = 0; i < 5; ++i) {
+            buf[c + 66 + static_cast<std::size_t>(i) * 2] = static_cast<unsigned char>(link[i]);
+            buf[c + 67 + static_cast<std::size_t>(i) * 2] = 0;
+        }
+        putU32(buf, 362, 0xFFFFFFFFU); // end marker
+
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QCOMPARE(rec.fileNames.size(), static_cast<std::size_t>(2));
+        QVERIFY(rec.fileNames[0].name == L"test");
+        QCOMPARE(rec.fileNames[0].parentNumber, static_cast<std::uint32_t>(5));
+        QVERIFY(rec.fileNames[1].name == L"link2");
+        QCOMPARE(rec.fileNames[1].parentNumber, static_cast<std::uint32_t>(100));
+        // Primary fields keep first-win behavior for existing consumers.
+        QVERIFY(rec.name == L"test");
+        QCOMPARE(rec.parentNumber, static_cast<std::uint32_t>(5));
+    }
+
+    void buildChildLinksEmitsOneRowPerRealName()
+    {
+        // Spec 004c: each real name is its own directory row (hardlink
+        // parity with enumeration); DOS aliases stay shadowed; a
+        // DOS-only record still lists once.
+        using usa::scanner::detail::MftRecord;
+        MftRecord multi{};
+        multi.number = 42;
+        multi.fileNames = {
+            {5, 0, L"test", 100, 0x20, false},
+            {100, 0, L"link2", 100, 0x20, false},
+        };
+        MftRecord aliased{};
+        aliased.number = 43;
+        aliased.fileNames = {
+            {5, 0, L"TEST_S~1", 100, 0x20, true},
+            {5, 0, L"long", 100, 0x20, false},
+        };
+        MftRecord dosOnly{};
+        dosOnly.number = 44;
+        dosOnly.fileNames = {{5, 0, L"SHORT", 100, 0x20, true}};
+        std::unordered_map<std::uint32_t, std::vector<usa::scanner::MftFinder::ChildRef>> out{};
+        const std::uint64_t extra =
+            usa::scanner::buildChildLinks({multi, aliased, dosOnly}, 5, out);
+        QCOMPARE(extra, static_cast<std::uint64_t>(1)); // only the hardlink adds a row
+        QCOMPARE(out[5].size(), static_cast<std::size_t>(3)); // test + long + SHORT
+        QCOMPARE(out[100].size(), static_cast<std::size_t>(1)); // link2
+        QCOMPARE(out[5][0].number, static_cast<std::uint32_t>(42));
+        QCOMPARE(out[5][0].nameIdx, static_cast<std::uint32_t>(0));
+        QCOMPARE(out[100][0].number, static_cast<std::uint32_t>(42));
+        QCOMPARE(out[100][0].nameIdx, static_cast<std::uint32_t>(1));
+        QCOMPARE(out[5][1].number, static_cast<std::uint32_t>(43));
+        QCOMPARE(out[5][1].nameIdx, static_cast<std::uint32_t>(1)); // Win32, not the alias
+    }
+
     void readsLiveVolumeWhenElevated()
     {
         const std::filesystem::path sysRoot{L"C:\\Windows\\System32"};

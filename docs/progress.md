@@ -116,6 +116,25 @@
 - Size-source work (spec §4a–§4b) is done. Only 004c counting rules
   remain before the numbers are fully reconciled.
 
+## Current (2026-10-12) — spec 004 slice 004c (one row per hardlink)
+
+- Gap analysis from operator GUI totals (reference GB read as GiB):
+  ProgramData reconciled (−1.9%, ±4 rows); VM folder reconciled to
+  0.1% (sparse image: true clusters vs reference repeating logical
+  into Allocated); Windows −41,511 files × ~174 KB avg = −7.2B bytes,
+  exactly the missing hardlink names. Reference Allocated always
+  equals its Size, so it is not measured — ours stands. The +5.6k
+  folders on our side is volume-reader coverage (access-denied
+  subtrees enumeration skips), documented, not dropped.
+- Fix: `MftRecord` keeps every `$FILE_NAME` link; `buildChildLinks`
+  expands one `ChildRef` per real name (DOS aliases shadowed, DOS-only
+  records still list once); `findNext`/`open` resolve each row under
+  its linked name. New `EngineResult::multiNameExtra` + `NameLinks:`
+  audit line from the probe load. Tests: multi-name fixture parse +
+  link-expansion matrix (both green); full suite 14/14, lint clean.
+- Next: operator runs one elevated scan; Windows files should land
+  near 199k with `NameLinks` ≈ 40–60k, closing both counts and bytes.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

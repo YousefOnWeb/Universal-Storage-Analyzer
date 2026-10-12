@@ -30,6 +30,19 @@ struct MftRecord {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};
     std::uint64_t lastWriteTs{0}; // Unix seconds
+    // Every $FILE_NAME link in the record (hardlinks carry several).
+    // The planar fields above stay as the primary link (first non-DOS
+    // name) for existing consumers; the finder expands all entries in
+    // fileNames into one directory row each (spec 004c).
+    struct FileNameEntry {
+        std::uint32_t parentNumber{0};
+        std::uint16_t parentSequence{0};
+        std::wstring name{};
+        std::uint64_t realSize{0};
+        std::uint32_t flags{0}; // $FILE_NAME attribute flags
+        bool dosAlias{false}; // namespace == 2 (8.3 alias)
+    };
+    std::vector<FileNameEntry> fileNames{};
     // Unnamed-default-stream extents for the stale-filename fallback (see
     // parseMftRecord): resident content length and non-resident real size.
     std::uint64_t unnamedResidentBytes{0};

@@ -143,6 +143,7 @@ void ScanLogger::writeLog(const QString& taskId, const QString& targetPath, cons
     }
     out << "ReparseSkip:  " << result.reparseSkipped << " reparse listings (listed once, never descended)\n";
     out << "RestatFixed:  " << result.restatFixed << " zero-record files repaired by live native stat\n";
+    out << "NameLinks:    " << result.multiNameExtra << " extra directory rows from multi-link records (hardlinks)\n";
     out << "ChainReport:  " << result.chainReports << " live ancestor-chain summaries emitted\n";
     out << "SweepDirs:    " << result.sweepDirs << " directories in bulk final sweep\n";
     out << "SweepChanged: " << result.sweepChangedDirs << " dirs differing from last live report";

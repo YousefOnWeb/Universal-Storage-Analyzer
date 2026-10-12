@@ -85,6 +85,9 @@ struct EngineResult {
     // Files whose zero/stale record size was replaced by a live native
     // stat (spec 004b). Counted, not listed (they are no longer zero).
     std::uint64_t restatFixed{0};
+    // Extra directory rows from multi-link records (hardlinks, spec
+    // 004c): child links beyond one per record, from the probe load.
+    std::uint64_t multiNameExtra{0};
     // Root subtree-max last-write (Unix seconds, audit only; display
     // stays object mtime in this spec).
     std::uint64_t rootMaxMtime{0};

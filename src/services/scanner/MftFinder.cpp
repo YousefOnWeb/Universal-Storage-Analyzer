@@ -76,9 +76,48 @@ struct MftFinder::SharedVolume {
     std::uint64_t loadStartTicks{0}; // 100ns FILETIME ticks when the image read began
     std::vector<MftRecord> records{};
     std::unordered_map<std::uint32_t, std::size_t> byNumber{};
-    std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> children{};
+    std::unordered_map<std::uint32_t, std::vector<MftFinder::ChildRef>> children{};
+    std::uint64_t extraNameLinks{0}; // child rows beyond one per record (hardlinks)
     std::uint64_t bytesPerCluster{4096};
 };
+
+std::uint64_t buildChildLinks(const std::vector<detail::MftRecord>& records,
+                              std::uint32_t rootNumber,
+                              std::unordered_map<std::uint32_t, std::vector<MftFinder::ChildRef>>& out)
+{
+    std::uint64_t extra{0};
+    for (const auto& rec : records) {
+        if (rec.number == rootNumber) {
+            continue;
+        }
+        if (rec.fileNames.empty()) {
+            // Predates link keeping (or a nameless edge): legacy single
+            // row addressed by the primary name.
+            out[rec.parentNumber].push_back(
+                MftFinder::ChildRef{rec.number, UINT32_MAX});
+            continue;
+        }
+        bool hasReal{false};
+        for (const auto& fn : rec.fileNames) {
+            if (!fn.dosAlias) {
+                hasReal = true;
+                break;
+            }
+        }
+        std::uint64_t rows{0};
+        for (std::uint32_t i{0}; i < static_cast<std::uint32_t>(rec.fileNames.size()); ++i) {
+            if (rec.fileNames[i].dosAlias && hasReal) {
+                continue; // shadowed alias: never a directory row
+            }
+            out[rec.fileNames[i].parentNumber].push_back(MftFinder::ChildRef{rec.number, i});
+            ++rows;
+        }
+        if (rows > 1) {
+            extra += rows - 1;
+        }
+    }
+    return extra;
+}
 
 namespace {
 
@@ -703,13 +742,10 @@ bool MftFinder::loadVolume(const std::filesystem::path& anyPathOnVolume)
     if (shared->records.empty()) {
         return fail("no usable records parsed");
     }
-    for (std::size_t i{0}; i < shared->records.size(); ++i) {
-        const auto& rec = shared->records[i];
-        if (rec.number == kRootRecordNumber) {
-            continue;
-        }
-        shared->children[rec.parentNumber].push_back(rec.number);
-    }
+    // One directory row per real name link (hardlinks multiply rows;
+    // DOS aliases stay shadowed). Replaces the old one-row-per-record
+    // map so enumeration parity holds for link farms (spec 004c).
+    shared->extraNameLinks = buildChildLinks(shared->records, kRootRecordNumber, shared->children);
     // The volume root must resolve or the image is unusable.
     if (shared->byNumber.find(kRootRecordNumber) == shared->byNumber.end()) {
         return fail("volume root record missing");
@@ -730,6 +766,11 @@ std::size_t MftFinder::recordCount() const
 bool MftFinder::volumeLoaded() const
 {
     return volume_ != nullptr;
+}
+
+std::uint64_t MftFinder::extraNameLinks() const
+{
+    return volume_ ? volume_->extraNameLinks : 0;
 }
 
 bool MftFinder::open(const std::filesystem::path& dir, std::uint64_t tokenHint)
@@ -761,17 +802,23 @@ bool MftFinder::open(const std::filesystem::path& dir, std::uint64_t tokenHint)
             bool found{false};
             const auto it = volume_->children.find(current);
             if (it != volume_->children.end()) {
-                for (const std::uint32_t childNum : it->second) {
-                    const auto recIt = volume_->byNumber.find(childNum);
+                for (const ChildRef& child : it->second) {
+                    const auto recIt = volume_->byNumber.find(child.number);
                     if (recIt == volume_->byNumber.end()) {
                         continue;
                     }
                     const MftRecord& rec = volume_->records[recIt->second];
+                    // Row name is the linked $FILE_NAME entry (hardlinks
+                    // resolve under each linked name, not the primary).
+                    const std::wstring& linkName =
+                        (child.nameIdx < rec.fileNames.size())
+                            ? rec.fileNames[child.nameIdx].name
+                            : rec.name;
                     // Sequence validation is best-effort here: stale parent
                     // references stay listable but are never descended into
                     // as anything but a leaf listing.
-                    if (compareNoCase(rec.name, want) == 0) {
-                        current = childNum;
+                    if (compareNoCase(linkName, want) == 0) {
+                        current = child.number;
                         found = true;
                         break;
                     }
@@ -813,7 +860,7 @@ bool MftFinder::openRecord(std::size_t index, const std::filesystem::path& dir)
     openedRecord_ = volume_->records[index].number;
     openedPath_ = dir;
     const auto childIt = volume_->children.find(openedRecord_);
-    children_ = (childIt != volume_->children.end()) ? childIt->second : std::vector<std::uint32_t>{};
+    children_ = (childIt != volume_->children.end()) ? childIt->second : std::vector<ChildRef>{};
     position_ = 0;
     enumerationStarted_ = false;
     return true;
@@ -835,8 +882,8 @@ bool MftFinder::findNext()
     }
     enumerationStarted_ = true;
     while (position_ < children_.size()) {
-        const std::uint32_t num = children_[position_++];
-        const auto it = volume_->byNumber.find(num);
+        const ChildRef ref = children_[position_++];
+        const auto it = volume_->byNumber.find(ref.number);
         if (it == volume_->byNumber.end()) {
             continue;
         }
@@ -846,8 +893,13 @@ bool MftFinder::findNext()
             && rec.number < kFirstUserRecord) {
             continue;
         }
+        // Row name is the linked $FILE_NAME entry: each hardlink names
+        // its own directory row (spec 004c).
+        const std::wstring& linkName = (ref.nameIdx < rec.fileNames.size())
+                                           ? rec.fileNames[ref.nameIdx].name
+                                           : rec.name;
         DirEntry cur{};
-        cur.fullPath = openedPath_ / rec.name;
+        cur.fullPath = openedPath_ / linkName;
         cur.isDirectory = rec.isDirectory && !rec.isReparsePoint;
         cur.isReparsePoint = rec.isReparsePoint;
         cur.logicalSize = rec.isDirectory ? 0 : rec.logicalSize;

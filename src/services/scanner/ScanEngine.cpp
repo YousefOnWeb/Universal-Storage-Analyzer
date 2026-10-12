@@ -555,6 +555,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     backend_ = BackendKind::NativeDirectory;
 #endif
     std::uint64_t loadMs{0};
+    std::uint64_t multiNameExtra{0};
     if (backend_ == BackendKind::DirectMft) {
         const auto probeStart = std::chrono::steady_clock::now();
         MftFinder probe{};
@@ -571,6 +572,10 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
                 callbacks.onNotice("Direct volume reading unavailable" + detail
                                    + "; using native enumeration.");
             }
+        } else {
+            // Hardlink row surplus for the audit (spec 004c): extra
+            // directory rows beyond one per record.
+            multiNameExtra = probe.extraNameLinks();
         }
         loadMs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()
@@ -625,6 +630,7 @@ EngineResult ScanEngine::run(const std::filesystem::path& root, const EngineCall
     result.reparseSkipped = reparseSkipped_.load(std::memory_order_relaxed);
     result.chainReports = chainReportCount_.load(std::memory_order_relaxed);
     result.restatFixed = restatFixed_.load(std::memory_order_relaxed);
+    result.multiNameExtra = multiNameExtra;
     {
         std::lock_guard<std::mutex> lock{emitMutex_};
         result.sweepDirs = static_cast<std::uint64_t>(allDirs_.size());
