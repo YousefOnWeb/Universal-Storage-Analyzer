@@ -140,14 +140,15 @@ private slots:
 
         auto* tree = win.findChild<QTreeView*>();
         QVERIFY(tree != nullptr);
-        QCOMPARE(tree->model()->rowCount(), 2); // D + f1
+        QCOMPARE(tree->model()->rowCount(), 1); // the visible volume root
+        const QModelIndex rootIdx = tree->model()->index(0, FileSystemModel::ColName);
 
         // The tree proxy sorts (sortingEnabled), so locate D by name
         // instead of assuming insertion order.
         QModelIndex dProxyIdx{};
-        for (int r = 0; r < tree->model()->rowCount(); ++r) {
+        for (int r = 0; r < tree->model()->rowCount(rootIdx); ++r) {
             const QModelIndex idx =
-                tree->model()->index(r, FileSystemModel::ColName);
+                tree->model()->index(r, FileSystemModel::ColName, rootIdx);
             if (tree->model()->data(idx).toString() == QStringLiteral("D")) {
                 dProxyIdx = idx;
             }
@@ -168,6 +169,46 @@ private slots:
         // following freed nodes, and heals on the next selection.
         model.onScanStarted(QStringLiteral("t2"), QStringLiteral("D:/b"));
         QCOMPARE(details->model()->rowCount(), 0);
+    }
+
+    void finishingScanSelectsVolumeRoot()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        // No scan started through the window, so the active task is empty
+        // and an empty task id passes the stale-scan guard exactly like a
+        // real finish does (zero skips: no summary dialog interferes).
+        QVERIFY(QMetaObject::invokeMethod(&win, "onScanFinished", Q_ARG(QString, QString{}),
+                                          Q_ARG(quint64, 1), Q_ARG(quint64, 1),
+                                          Q_ARG(quint64, 100)));
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        // Spec 005a: the finished scan selects its volume root, whose
+        // children (D + f1) land in the details pane.
+        QCOMPARE(model.nodeIdForIndex(treeProxy->mapToSource(tree->currentIndex())),
+                 static_cast<quint32>(0));
+        auto* detailsModel = win.findChild<DetailsTableModel*>();
+        QVERIFY(detailsModel != nullptr);
+        QCOMPARE(detailsModel->rowCount(), 2);
     }
 
     void collectsSkipsIntoEndOfScanSummary()
@@ -258,9 +299,12 @@ private slots:
         auto* tree = win.findChild<QTreeView*>();
         QVERIFY(tree != nullptr);
         // The tree proxy sorts: locate rows by name, never by position.
+        // Top level holds the visible root; D/f1 live beneath it.
+        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
         const auto proxyRowByName = [&](const QString& name) {
-            for (int r = 0; r < tree->model()->rowCount(); ++r) {
-                const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+            for (int r = 0; r < tree->model()->rowCount(treeRoot); ++r) {
+                const QModelIndex idx =
+                    tree->model()->index(r, FileSystemModel::ColName, treeRoot);
                 if (tree->model()->data(idx).toString() == name) {
                     return idx;
                 }
@@ -333,8 +377,10 @@ private slots:
         QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(2));
 
         // Bars follow folder selection like the treemap does.
-        for (int r = 0; r < tree->model()->rowCount(); ++r) {
-            const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+        const QModelIndex barsRoot = tree->model()->index(0, FileSystemModel::ColName);
+        for (int r = 0; r < tree->model()->rowCount(barsRoot); ++r) {
+            const QModelIndex idx =
+                tree->model()->index(r, FileSystemModel::ColName, barsRoot);
             if (tree->model()->data(idx).toString() == QStringLiteral("D")) {
                 tree->setCurrentIndex(idx);
             }
@@ -578,11 +624,14 @@ private slots:
         QCOMPARE(ageView->model()->rowCount(), 1);
 
         // Extension pick filters the tree (dirs stay as containers).
+        // Top level holds the visible root; rows live beneath it.
         auto* tree = win.findChild<QTreeView*>();
         QVERIFY(tree != nullptr);
+        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
         const auto proxyRowByName = [&](const QString& name) {
-            for (int r = 0; r < tree->model()->rowCount(); ++r) {
-                const QModelIndex idx = tree->model()->index(r, FileSystemModel::ColName);
+            for (int r = 0; r < tree->model()->rowCount(treeRoot); ++r) {
+                const QModelIndex idx =
+                    tree->model()->index(r, FileSystemModel::ColName, treeRoot);
                 if (tree->model()->data(idx).toString() == name) {
                     return idx;
                 }
@@ -601,7 +650,7 @@ private slots:
         extView->selectionModel()->select(
             extRowByName(QStringLiteral(".log")),
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-        QCOMPARE(tree->model()->rowCount(), 1); // D only; f1.txt hidden
+        QCOMPARE(tree->model()->rowCount(), 1); // root (keeping D; f1.txt hidden)
         const QModelIndex dIdx = proxyRowByName(QStringLiteral("D"));
         QVERIFY(dIdx.isValid());
         QCOMPARE(tree->model()->rowCount(dIdx), 1); // f2.log
@@ -610,7 +659,7 @@ private slots:
         extView->selectionModel()->select(
             extRowByName(QStringLiteral(".log")),
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-        QCOMPARE(tree->model()->rowCount(), 2); // D + f1.txt again
+        QCOMPARE(tree->model()->rowCount(), 1); // root again (D + f1.txt beneath)
 
         // Top click selects the node in the tree through real wiring.
         topView->clicked(topView->model()->index(0, 0));

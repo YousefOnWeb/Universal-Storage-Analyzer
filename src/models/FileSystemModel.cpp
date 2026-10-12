@@ -1,6 +1,7 @@
 #include "FileSystemModel.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QElapsedTimer>
 
 #include <vector>
@@ -47,7 +48,12 @@ QModelIndex FileSystemModel::index(int row, int column, const QModelIndex& paren
     if (!hasIndex(row, column, parent)) {
         return {};
     }
-    const Node* parentNode = parent.isValid() ? nodeFromIndex(parent) : root_;
+    // Spec 005a: the scan root (id 0) is a visible row — the single
+    // top-level entry. Everything else hangs beneath it.
+    if (!parent.isValid()) {
+        return (row == 0 && root_ != nullptr) ? createIndex(0, column, root_) : QModelIndex{};
+    }
+    const Node* parentNode = nodeFromIndex(parent);
     if (parentNode == nullptr || row < 0
         || row >= static_cast<int>(parentNode->children.size())) {
         return {};
@@ -62,10 +68,16 @@ QModelIndex FileSystemModel::parent(const QModelIndex& child) const
         return {};
     }
     const Node* node = nodeFromIndex(child);
-    if (node == nullptr || node->parent == nullptr || node->parent == root_) {
+    if (node == nullptr || node->parent == nullptr) {
         return {};
     }
+    if (node == root_) {
+        return {}; // the visible root is top-level
+    }
     const Node* p = node->parent;
+    if (p == root_) {
+        return createIndex(0, 0, root_);
+    }
     return createIndex(p->row, 0, const_cast<Node*>(p));
 }
 
@@ -74,7 +86,10 @@ int FileSystemModel::rowCount(const QModelIndex& parent) const
     if (parent.column() > 0) {
         return 0;
     }
-    const Node* node = parent.isValid() ? nodeFromIndex(parent) : root_;
+    if (!parent.isValid()) {
+        return root_ != nullptr ? 1 : 0; // the visible volume-root row
+    }
+    const Node* node = nodeFromIndex(parent);
     if (node == nullptr) {
         return 0;
     }
@@ -174,10 +189,13 @@ quint32 FileSystemModel::nodeIdForIndex(const QModelIndex& index) const
 QModelIndex FileSystemModel::indexForNodeId(quint32 nodeId) const
 {
     const auto it = owned_.find(nodeId);
-    if (it == owned_.end() || it->second.get() == root_) {
+    if (it == owned_.end()) {
         return {};
     }
     Node* node = it->second.get();
+    if (node == root_) {
+        return createIndex(0, 0, node); // spec 005a: root is addressable
+    }
     return createIndex(node->row, 0, node);
 }
 
@@ -247,7 +265,9 @@ void FileSystemModel::onScanStarted(const QString& /*taskId*/, const QString& ta
     auto root = std::make_unique<Node>();
     root->id = 0;
     root->parentId = 0;
-    root->name = targetPath;
+    // Spec 005a: the visible root carries the scanned target in native
+    // form (e.g. "C:/" -> "C:\") so the hierarchy names its own volume.
+    root->name = QDir::toNativeSeparators(targetPath);
     root->isDirectory = true;
     root_ = root.get();
     owned_.emplace(0, std::move(root));
@@ -313,8 +333,9 @@ void FileSystemModel::insertGrouped(const QVector<FileRecord>& batch)
             ++count;
         }
 
-        const QModelIndex parentIdx =
-            (parentNode == root_) ? QModelIndex{} : indexForNodeId(parentNode->id);
+        const QModelIndex parentIdx = (parentNode == root_)
+                                          ? createIndex(0, 0, root_) // visible volume root
+                                          : indexForNodeId(parentNode->id);
         const int firstRow = static_cast<int>(parentNode->children.size());
         const int lastRow = firstRow + count - 1;
 

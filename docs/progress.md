@@ -190,6 +190,25 @@
   telemetry/worker threads. 14/14 green, lint clean, no test changes
   (log lines only).
 
+## Current (2026-10-12) — spec 005 slice 005a (visible root + selection)
+
+- `FileSystemModel` projects id 0 as a real top-level row named for
+  the target (`QDir::toNativeSeparators`, e.g. `C:\`); children
+  reparent beneath it with unchanged ids; `indexForNodeId(0)`,
+  `parent()`, `rowCount()`, and insert announcements all honor the
+  visible root. `MainWindow::onScanFinished` selects + expands it
+  (stale-task guarded), so details list the volume contents.
+- Caught live by the new tests: `insertGrouped` announced
+  root-children as top-level rows (stale implicit-root contract),
+  which the sorted proxy materialized as phantom `""` rows;
+  `DetailsTableModel` resolved a cleared selection to the root row
+  instead of empty. Both fixed (`parentIdx` = root index;
+  invalid-selection guard).
+- Tests: new `exposesVisibleRootRowWithTargetName` +
+  `finishingScanSelectsVolumeRoot`; updated counts in
+  model/pipeline/ui suites for the root row. 14/14 green, lint
+  clean, layering untouched (models only + selection call).
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

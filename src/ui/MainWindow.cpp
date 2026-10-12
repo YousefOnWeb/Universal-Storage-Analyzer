@@ -382,6 +382,14 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
                               .arg(files)
                               .arg(dirs)
                               .arg(formatBytes(bytes, unitsCombo_->currentText())));
+    // Spec 005a: the finished scan selects its volume root, so the
+    // right pane lists the volume's direct contents. Guarded by the
+    // task check above; a filtered-out root simply selects nothing.
+    selectTreeNode(0);
+    const QModelIndex rootProxy = treeProxy_->mapFromSource(model_->indexForNodeId(0));
+    if (rootProxy.isValid()) {
+        tree_->expand(rootProxy);
+    }
     onTreeSelectionChanged();
     if (skippedTotal > 0) {
         QString details = skippedPaths_.join(QStringLiteral("\n"));

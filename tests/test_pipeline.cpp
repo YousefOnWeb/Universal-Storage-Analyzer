@@ -51,17 +51,20 @@ private slots:
         // scanFinished is emitted after all node/summary signals from the
         // worker thread, so queued delivery has fully landed by now.
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(300));
-        QCOMPARE(model.rowCount(QModelIndex{}), 2); // a.bin + sub
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // the visible volume root
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        QVERIFY(rootIdx.isValid());
 
         // Locate "sub" and check its exact subtree total (200, not doubled).
         quint64 subBytes{0};
         int subRows{-1};
-        for (int r{0}; r < model.rowCount(QModelIndex{}); ++r) {
-            const QModelIndex nameIdx = model.index(r, FileSystemModel::ColName, QModelIndex{});
+        QCOMPARE(model.rowCount(rootIdx), 2); // a.bin + sub beneath root
+        for (int r{0}; r < model.rowCount(rootIdx); ++r) {
+            const QModelIndex nameIdx = model.index(r, FileSystemModel::ColName, rootIdx);
             if (model.data(nameIdx).toString() == QStringLiteral("sub")) {
-                subBytes = model.data(model.index(r, FileSystemModel::ColSize, QModelIndex{}))
+                subBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx))
                                .toULongLong();
-                subRows = model.rowCount(model.index(r, 0, QModelIndex{}));
+                subRows = model.rowCount(model.index(r, 0, rootIdx));
             }
         }
         QCOMPARE(subBytes, static_cast<qulonglong>(200));

@@ -1,5 +1,7 @@
 #include <QtTest>
 
+#include <QDir>
+
 #include "../src/models/DetailsTableModel.h"
 #include "../src/models/FileSystemModel.h"
 #include "../src/models/StatsTableModel.h"
@@ -67,7 +69,10 @@ private slots:
 
         // Root keeps exact totals — 600, not 1200.
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(600));
-        QCOMPARE(model.rowCount(QModelIndex{}), 2); // D + f1
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // the visible volume root
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        QVERIFY(rootIdx.isValid());
+        QCOMPARE(model.rowCount(rootIdx), 2); // D + f1 beneath root
         QCOMPARE(model.rowCount(dIdx), 1); // f2
     }
 
@@ -84,8 +89,10 @@ private slots:
         f2.name = QStringLiteral("f2");
         f2.logicalSize = 500;
         model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f2});
-        // Nothing stored yet — certainly not at root.
-        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        // Nothing stored yet — certainly not at root: only the visible
+        // root row itself, with no children and no bytes.
+        QCOMPARE(model.rowCount(QModelIndex{}), 1);
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 0);
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
 
         FileRecord dir{};
@@ -101,7 +108,8 @@ private slots:
         model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
 
         // Parent arrival drains the waiter into place; totals stay exact.
-        QCOMPARE(model.rowCount(QModelIndex{}), 2); // D + f1, never 3
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // the visible root, never 3
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 2); // D + f1 beneath root
         const QModelIndex dIdx = model.indexForNodeId(1);
         QVERIFY(dIdx.isValid());
         QCOMPARE(model.rowCount(dIdx), 1); // f2
@@ -185,14 +193,16 @@ private slots:
         model.onScanStarted(QStringLiteral("t2"), QStringLiteral("D:/b"));
         QCOMPARE(resetSpy.count(), 1);
         QCOMPARE(resetSpy.at(0).at(0).toString(), QStringLiteral("D:/b"));
-        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // fresh visible root, no children
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 0);
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
         QVERIFY(!model.indexForNodeId(2).isValid()); // old ids are gone
 
         model.onNodesDiscovered(QStringLiteral("t2"), QVector<FileRecord>{f});
-        QCOMPARE(model.rowCount(QModelIndex{}), 1);
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // still just the root row
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 1); // f beneath it
         model.clear();
-        QCOMPARE(model.rowCount(QModelIndex{}), 0);
+        QCOMPARE(model.rowCount(QModelIndex{}), 1); // clear rebuilds the "/" root
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
     }
 
@@ -207,8 +217,13 @@ private slots:
         f.logicalSize = 100;
         model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f});
 
-        // Root and unknown ids have no visible index.
-        QVERIFY(!model.indexForNodeId(0).isValid());
+        // The volume root is a visible, addressable row (spec 005a);
+        // unknown ids still have no index.
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        QVERIFY(rootIdx.isValid());
+        QCOMPARE(model.data(model.index(rootIdx.row(), FileSystemModel::ColName)).toString(),
+                 QDir::toNativeSeparators(QStringLiteral("C:/data")));
+        QVERIFY(!model.parent(rootIdx).isValid()); // root is top-level
         QVERIFY(!model.indexForNodeId(4242).isValid());
 
         QCOMPARE(model.headerData(FileSystemModel::ColName, Qt::Horizontal).toString(),
@@ -291,6 +306,46 @@ private slots:
         QVERIFY(model.childEntries(2).empty()); // files have no children
     }
 
+    void exposesVisibleRootRowWithTargetName()
+    {
+        // Spec 005a: the scan root is a visible top-level row named for
+        // the target; children hang beneath it; selecting it shows them
+        // in the details projection.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        QCOMPARE(model.rowCount(QModelIndex{}), 1);
+        const QModelIndex rootIdx = model.index(0, FileSystemModel::ColName, QModelIndex{});
+        QVERIFY(rootIdx.isValid());
+        QCOMPARE(model.nodeIdForIndex(rootIdx), static_cast<quint32>(0));
+        QCOMPARE(model.data(rootIdx).toString(),
+                 QDir::toNativeSeparators(QStringLiteral("C:/data")));
+        QCOMPARE(model.indexForNodeId(0), rootIdx);
+        QVERIFY(!model.parent(rootIdx).isValid());
+        QCOMPARE(model.rowCount(rootIdx), 2); // D + f1
+
+        // Children address back to the root row, not to invalid.
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        QVERIFY(dIdx.isValid());
+        QCOMPARE(model.parent(dIdx), rootIdx);
+
+        // Root selection projects its children into details.
+        DetailsTableModel details{&model};
+        details.setSelectedNode(rootIdx);
+        QCOMPARE(details.rowCount(), 2);
+    }
+
     void treeFilterCombinesSearchAndExtension()
     {
         FileSystemModel model{};
@@ -314,12 +369,15 @@ private slots:
 
         TreeFilterProxyModel proxy{};
         proxy.setSourceModel(&model);
-        QCOMPARE(proxy.rowCount(), 2); // unfiltered: D + f1.txt
+        QCOMPARE(proxy.rowCount(), 1); // unfiltered: the visible root
 
-        // Extension filter: files must match, dirs pass, parents kept.
+        // Extension filter: files must match, dirs pass, parents kept —
+        // the root survives as the ancestor chain's top.
         proxy.setExtensionFilter(QStringLiteral(".log"));
-        QCOMPARE(proxy.rowCount(), 1); // D only (kept as f2.log's parent)
-        const QModelIndex dProxy = proxy.index(0, 0);
+        QCOMPARE(proxy.rowCount(), 1); // root (keeping D keeping f2.log)
+        const QModelIndex rootProxy = proxy.index(0, 0);
+        QCOMPARE(proxy.rowCount(rootProxy), 1); // D beneath root
+        const QModelIndex dProxy = proxy.index(0, 0, rootProxy);
         QCOMPARE(proxy.rowCount(dProxy), 1);
         QCOMPARE(proxy.data(proxy.index(0, 0, dProxy)).toString(), QStringLiteral("f2.log"));
 
@@ -328,12 +386,15 @@ private slots:
         QCOMPARE(proxy.rowCount(), 0);
         proxy.setSearchText(QStringLiteral(""));
         proxy.setExtensionFilter(QStringLiteral(""));
-        QCOMPARE(proxy.rowCount(), 2);
+        QCOMPARE(proxy.rowCount(), 1);
 
-        // Search alone is recursive: nested hit keeps its parent visible.
+        // Search alone is recursive: nested hit keeps its chain visible.
         proxy.setSearchText(QStringLiteral("f2"));
         QCOMPARE(proxy.rowCount(), 1);
-        QCOMPARE(proxy.data(proxy.index(0, 0)).toString(), QStringLiteral("D"));
+        QCOMPARE(proxy.data(proxy.index(0, 0)).toString(),
+                 QDir::toNativeSeparators(QStringLiteral("C:/data"))); // root row
+        QCOMPARE(proxy.data(proxy.index(0, 0, proxy.index(0, 0))).toString(),
+                 QStringLiteral("D"));
     }
 
     void statsModelReplacesRowsWithSortKeys()
