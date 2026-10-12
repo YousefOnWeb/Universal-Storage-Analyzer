@@ -135,6 +135,26 @@
 - Next: operator runs one elevated scan; Windows files should land
   near 199k with `NameLinks` ≈ 40–60k, closing both counts and bytes.
 
+## Current (2026-10-12) — spec 004 accepted on proof scan
+
+- Proof scan with 004c (DirectMft, 2.02M rows): `NameLinks: 55579`
+  (predicted 40–60k); files 1,643,271 → **1,699,710** (reference
+  1,693,976: **+0.34%**); total 443.85 → **458.13 GiB** (reference
+  461.5 GiB, units confirmed GiB via the VM row: 44.93B bytes =
+  41.84 GiB printed as 41.8: **−0.73%**). Folders +1.8%, sourced to
+  volume-reader coverage of access-denied subtrees (documented rule).
+  The systematic −41k/−7.2B Windows gap is closed; residuals are
+  volume churn between captures plus unit/timing noise.
+- Watch item (not a gate): traverse 27.8 → 46.5 s on this run with
+  identical backends and `throttled: false`; 004c adds no hot-path
+  cost (expansion runs once at load), so this reads as environmental
+  (AV/update/indexer). Next scan timing decides whether to profile.
+- Spec 004 acceptance oracle (§4g/§5) is met: bytes and files within
+  1% of reference, folders individually sourced, zero list named,
+  audit complete. Remaining specs 005 (hierarchy/selection/sorting)
+  and 006 (columns/formatting/summaries) own the UI-restructuring
+  half of the comparison.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,
