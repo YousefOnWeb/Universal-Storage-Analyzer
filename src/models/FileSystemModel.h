@@ -72,6 +72,12 @@ public slots:
 signals:
     void modelResetForNewScan(const QString& targetPath);
 
+public:
+    // Reserved id for the synthetic root-files group row (spec 005c).
+    // Engine ids sequence from 1 and can never reach it; records
+    // carrying it are dropped defensively on insert.
+    static constexpr quint32 kRootFilesGroupId{0xFFFFFFFE};
+
 private:
     struct Node {
         quint32 id{0};
@@ -98,6 +104,18 @@ private:
     // Newly inserted ids drain any waiting children (recursive, sequential:
     // each group opens and closes its own rows-insert transaction).
     void insertGrouped(const QVector<FileRecord>& batch);
+    // Inserts [start, start + count) of batch beneath parentNode in one
+    // rows-insert transaction; appends fresh ids for drain duty.
+    void insertRowsUnder(Node* parentNode, const QVector<FileRecord>& batch, int start, int count,
+                         std::vector<quint32>& freshIds);
+    // Drains children that waited for freshly inserted parents.
+    void drainWaitingChildren(const std::vector<quint32>& freshIds);
+    // Spec 005c: ensures the synthetic "[N Files]" group row beneath the
+    // scan root (created on first root-level file, never otherwise).
+    Node* ensureRootFilesGroup();
+    // Spec 005c: appends root-level files as group members (no
+    // individual tree rows) and rolls their sizes into the group sums.
+    void insertRootFileMembers(const QVector<FileRecord>& files);
 
     std::unordered_map<quint32, std::unique_ptr<Node>> owned_{};
     // Summaries that arrived before their node (node batches are chunked

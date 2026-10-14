@@ -56,9 +56,11 @@ private slots:
         QVERIFY(rootIdx.isValid());
 
         // Locate "sub" and check its exact subtree total (200, not doubled).
+        // Root-level files aggregate (spec 005c): a.bin lives in the group.
         quint64 subBytes{0};
         int subRows{-1};
-        QCOMPARE(model.rowCount(rootIdx), 2); // a.bin + sub beneath root
+        quint64 groupBytes{0};
+        QCOMPARE(model.rowCount(rootIdx), 2); // sub + group beneath root
         for (int r{0}; r < model.rowCount(rootIdx); ++r) {
             const QModelIndex nameIdx = model.index(r, FileSystemModel::ColName, rootIdx);
             if (model.data(nameIdx).toString() == QStringLiteral("sub")) {
@@ -66,9 +68,15 @@ private slots:
                                .toULongLong();
                 subRows = model.rowCount(model.index(r, 0, rootIdx));
             }
+            if (model.nodeIdForIndex(model.index(r, 0, rootIdx))
+                == FileSystemModel::kRootFilesGroupId) {
+                groupBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx))
+                                 .toULongLong();
+            }
         }
         QCOMPARE(subBytes, static_cast<qulonglong>(200));
         QCOMPARE(subRows, 1); // b.bin
+        QCOMPARE(groupBytes, static_cast<qulonglong>(100)); // a.bin via the group
     }
 
     void destroysServiceWhileScanSuspended()

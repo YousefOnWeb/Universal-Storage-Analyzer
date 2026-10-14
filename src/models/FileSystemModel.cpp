@@ -306,7 +306,8 @@ void FileSystemModel::insertGrouped(const QVector<FileRecord>& batch)
     const int n = static_cast<int>(batch.size());
     while (i < n) {
         const FileRecord& firstRec = batch[i];
-        if (firstRec.id == 0 || owned_.find(firstRec.id) != owned_.end()) {
+        if (firstRec.id == 0 || firstRec.id == kRootFilesGroupId
+            || owned_.find(firstRec.id) != owned_.end()) {
             ++i;
             continue;
         }
@@ -324,7 +325,8 @@ void FileSystemModel::insertGrouped(const QVector<FileRecord>& batch)
         int count = 1;
         while (i + count < n) {
             const FileRecord& nextRec = batch[i + count];
-            if (nextRec.id == 0 || owned_.find(nextRec.id) != owned_.end()) {
+            if (nextRec.id == 0 || nextRec.id == kRootFilesGroupId
+                || owned_.find(nextRec.id) != owned_.end()) {
                 break;
             }
             if (nextRec.parentId != currentParentId) {
@@ -333,59 +335,174 @@ void FileSystemModel::insertGrouped(const QVector<FileRecord>& batch)
             ++count;
         }
 
-        const QModelIndex parentIdx = (parentNode == root_)
-                                          ? createIndex(0, 0, root_) // visible volume root
-                                          : indexForNodeId(parentNode->id);
-        const int firstRow = static_cast<int>(parentNode->children.size());
-        const int lastRow = firstRow + count - 1;
-
-        beginInsertRows(parentIdx, firstRow, lastRow);
+        if (currentParentId == 0) {
+            // Spec 005c: root-level rows split — directories become root
+            // rows, files aggregate into the synthetic group row (never
+            // individual tree rows). Batches sort by parentId only, so a
+            // group may mix both; the copies below are QString-shared.
+            QVector<FileRecord> dirs{};
+            QVector<FileRecord> files{};
+            for (int j = 0; j < count; ++j) {
+                if (batch[i + j].isDirectory) {
+                    dirs.push_back(batch[i + j]);
+                } else {
+                    files.push_back(batch[i + j]);
+                }
+            }
+            if (!dirs.isEmpty()) {
+                std::vector<quint32> freshIds{};
+                insertRowsUnder(root_, dirs, 0, static_cast<int>(dirs.size()), freshIds);
+                drainWaitingChildren(freshIds);
+            }
+            if (!files.isEmpty()) {
+                insertRootFileMembers(files);
+            }
+            i += count;
+            continue;
+        }
 
         std::vector<quint32> freshIds{};
-        freshIds.reserve(static_cast<std::size_t>(count));
-        for (int j = 0; j < count; ++j) {
-            const FileRecord& rec = batch[i + j];
-            auto node = std::make_unique<Node>();
-            node->id = rec.id;
-            node->parentId = parentNode->id;
-            node->row = static_cast<int>(parentNode->children.size());
-            node->name = rec.name;
-            node->logicalSize = rec.logicalSize;
-            node->allocatedSize = rec.allocatedSize;
-            node->lastModifiedTs = rec.lastModifiedTs;
-            node->isDirectory = rec.isDirectory;
-            node->parent = parentNode;
+        insertRowsUnder(parentNode, batch, i, count, freshIds);
+        drainWaitingChildren(freshIds);
+        i += count;
+    }
+}
 
-            Node* raw = node.get();
-            owned_.emplace(raw->id, std::move(node));
-            parentNode->children.push_back(raw);
-            freshIds.push_back(raw->id);
+void FileSystemModel::insertRowsUnder(Node* parentNode, const QVector<FileRecord>& batch,
+                                     int start, int count, std::vector<quint32>& freshIds)
+{
+    const QModelIndex parentIdx = (parentNode == root_)
+                                      ? createIndex(0, 0, root_) // visible volume root
+                                      : indexForNodeId(parentNode->id);
+    const int firstRow = static_cast<int>(parentNode->children.size());
+    const int lastRow = firstRow + count - 1;
 
-            if (!raw->isDirectory) {
-                totalLogical_ += raw->logicalSize;
-            }
+    beginInsertRows(parentIdx, firstRow, lastRow);
 
-            if (const auto pending = pendingSummaries_.find(raw->id);
-                pending != pendingSummaries_.end()) {
-                applyMetrics(raw, pending->second);
-                pendingSummaries_.erase(pending);
-            }
+    freshIds.reserve(freshIds.size() + static_cast<std::size_t>(count));
+    for (int j = 0; j < count; ++j) {
+        const FileRecord& rec = batch[start + j];
+        auto node = std::make_unique<Node>();
+        node->id = rec.id;
+        node->parentId = parentNode->id;
+        node->row = static_cast<int>(parentNode->children.size());
+        node->name = rec.name;
+        node->logicalSize = rec.logicalSize;
+        node->allocatedSize = rec.allocatedSize;
+        node->lastModifiedTs = rec.lastModifiedTs;
+        node->isDirectory = rec.isDirectory;
+        node->parent = parentNode;
+
+        Node* raw = node.get();
+        owned_.emplace(raw->id, std::move(node));
+        parentNode->children.push_back(raw);
+        freshIds.push_back(raw->id);
+
+        if (!raw->isDirectory) {
+            totalLogical_ += raw->logicalSize;
         }
 
-        endInsertRows();
-        i += count;
-
-        // Drain children that waited for these parents (sequential groups,
-        // each with its own transaction; deeper levels recurse).
-        for (const quint32 fresh : freshIds) {
-            const auto waiting = pendingChildren_.find(fresh);
-            if (waiting != pendingChildren_.end()) {
-                QVector<FileRecord> kids = std::move(waiting->second);
-                pendingChildren_.erase(waiting);
-                insertGrouped(kids);
-            }
+        if (const auto pending = pendingSummaries_.find(raw->id);
+            pending != pendingSummaries_.end()) {
+            applyMetrics(raw, pending->second);
+            pendingSummaries_.erase(pending);
         }
     }
+
+    endInsertRows();
+}
+
+void FileSystemModel::drainWaitingChildren(const std::vector<quint32>& freshIds)
+{
+    // Drain children that waited for these parents (sequential groups,
+    // each with its own transaction; deeper levels recurse).
+    for (const quint32 fresh : freshIds) {
+        const auto waiting = pendingChildren_.find(fresh);
+        if (waiting != pendingChildren_.end()) {
+            QVector<FileRecord> kids = std::move(waiting->second);
+            pendingChildren_.erase(waiting);
+            insertGrouped(kids);
+        }
+    }
+}
+
+namespace {
+
+QString rootFilesGroupLabel(quint32 members)
+{
+    return QStringLiteral("[%1 Files]").arg(members);
+}
+
+} // namespace
+
+FileSystemModel::Node* FileSystemModel::ensureRootFilesGroup()
+{
+    if (root_ == nullptr) {
+        return nullptr;
+    }
+    if (const auto it = owned_.find(kRootFilesGroupId); it != owned_.end()) {
+        return it->second.get();
+    }
+    const QModelIndex rootIdx = createIndex(0, 0, root_);
+    const int row = static_cast<int>(root_->children.size());
+    beginInsertRows(rootIdx, row, row);
+    auto group = std::make_unique<Node>();
+    group->id = kRootFilesGroupId;
+    group->parentId = 0;
+    group->row = row;
+    group->name = rootFilesGroupLabel(0);
+    group->isDirectory = true; // container semantics: selectable, expandable
+    group->parent = root_;
+    Node* raw = group.get();
+    owned_.emplace(raw->id, std::move(group));
+    root_->children.push_back(raw);
+    endInsertRows();
+    return raw;
+}
+
+void FileSystemModel::insertRootFileMembers(const QVector<FileRecord>& files)
+{
+    if (files.isEmpty()) {
+        return;
+    }
+    Node* group = ensureRootFilesGroup();
+    if (group == nullptr) {
+        return;
+    }
+    const QModelIndex groupIdx = indexForNodeId(group->id);
+    const int firstRow = static_cast<int>(group->children.size());
+    const int lastRow = firstRow + static_cast<int>(files.size()) - 1;
+    beginInsertRows(groupIdx, firstRow, lastRow);
+    for (const FileRecord& rec : files) {
+        auto node = std::make_unique<Node>();
+        node->id = rec.id;
+        node->parentId = group->id;
+        node->row = static_cast<int>(group->children.size());
+        node->name = rec.name;
+        node->logicalSize = rec.logicalSize;
+        node->allocatedSize = rec.allocatedSize;
+        node->lastModifiedTs = rec.lastModifiedTs;
+        node->isDirectory = false;
+        node->parent = group;
+
+        Node* raw = node.get();
+        owned_.emplace(raw->id, std::move(node));
+        group->children.push_back(raw);
+        totalLogical_ += raw->logicalSize;
+        // File leaves never carry engine summaries; nothing to apply.
+    }
+    endInsertRows();
+    // Roll up replace-semantics sums from the members just stored (the
+    // engine never addresses the synthetic id, so no summary can
+    // double-count it later). Timestamp stays 0: an aggregate of many
+    // files has no single honest mtime (spec 005 §4d).
+    for (const FileRecord& rec : files) {
+        group->logicalSize += rec.logicalSize;
+        group->allocatedSize += rec.allocatedSize;
+        group->fileCount += 1;
+    }
+    group->name = rootFilesGroupLabel(group->fileCount);
+    refreshNode(groupIdx, group);
 }
 
 void FileSystemModel::onBranchMetricsUpdated(const QString& /*taskId*/, BranchMetrics metrics)

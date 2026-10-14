@@ -72,7 +72,7 @@ private slots:
         QCOMPARE(model.rowCount(QModelIndex{}), 1); // the visible volume root
         const QModelIndex rootIdx = model.indexForNodeId(0);
         QVERIFY(rootIdx.isValid());
-        QCOMPARE(model.rowCount(rootIdx), 2); // D + f1 beneath root
+        QCOMPARE(model.rowCount(rootIdx), 2); // D + the "[1 Files]" group
         QCOMPARE(model.rowCount(dIdx), 1); // f2
     }
 
@@ -108,8 +108,10 @@ private slots:
         model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
 
         // Parent arrival drains the waiter into place; totals stay exact.
+        // Root-level files aggregate (spec 005c), so root shows D plus
+        // the "[1 Files]" group — never 3 rows.
         QCOMPARE(model.rowCount(QModelIndex{}), 1); // the visible root, never 3
-        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 2); // D + f1 beneath root
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 2); // D + group beneath root
         const QModelIndex dIdx = model.indexForNodeId(1);
         QVERIFY(dIdx.isValid());
         QCOMPARE(model.rowCount(dIdx), 1); // f2
@@ -200,7 +202,10 @@ private slots:
 
         model.onNodesDiscovered(QStringLiteral("t2"), QVector<FileRecord>{f});
         QCOMPARE(model.rowCount(QModelIndex{}), 1); // still just the root row
-        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 1); // f beneath it
+        QCOMPARE(model.rowCount(model.indexForNodeId(0)), 1); // the group row beneath it
+        const QModelIndex groupIdx = model.indexForNodeId(FileSystemModel::kRootFilesGroupId);
+        QVERIFY(groupIdx.isValid());
+        QCOMPARE(model.rowCount(groupIdx), 1); // f beneath the group
         model.clear();
         QCOMPARE(model.rowCount(QModelIndex{}), 1); // clear rebuilds the "/" root
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(0));
@@ -301,7 +306,13 @@ private slots:
         QCOMPARE(kids[0].id, static_cast<quint32>(1));
         QCOMPARE(kids[0].name, QStringLiteral("D"));
         QVERIFY(kids[0].isDirectory);
-        QCOMPARE(kids[1].logicalSize, static_cast<quint64>(100));
+        // Root-level files aggregate (spec 005c): second child is the
+        // group row, and f lives beneath it with its size intact.
+        QCOMPARE(kids[1].id, FileSystemModel::kRootFilesGroupId);
+        const auto members = model.childEntries(FileSystemModel::kRootFilesGroupId);
+        QCOMPARE(members.size(), static_cast<std::size_t>(1));
+        QCOMPARE(members[0].id, static_cast<quint32>(2));
+        QCOMPARE(members[0].logicalSize, static_cast<std::uint64_t>(100));
         QVERIFY(model.childEntries(4242).empty());
         QVERIFY(model.childEntries(2).empty()); // files have no children
     }
@@ -333,7 +344,7 @@ private slots:
                  QDir::toNativeSeparators(QStringLiteral("C:/data")));
         QCOMPARE(model.indexForNodeId(0), rootIdx);
         QVERIFY(!model.parent(rootIdx).isValid());
-        QCOMPARE(model.rowCount(rootIdx), 2); // D + f1
+        QCOMPARE(model.rowCount(rootIdx), 2); // D + the "[1 Files]" group (f1 aggregates)
 
         // Children address back to the root row, not to invalid.
         const QModelIndex dIdx = model.indexForNodeId(1);
@@ -344,6 +355,94 @@ private slots:
         DetailsTableModel details{&model};
         details.setSelectedNode(rootIdx);
         QCOMPARE(details.rowCount(), 2);
+    }
+
+    void groupsRootLevelFilesWithExactSums()
+    {
+        // Spec 005c: root-level files aggregate into one "[N Files]"
+        // group row (no individual tree rows); sums reconcile exactly;
+        // members list through the group; later batches grow it.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("a.sys");
+        f1.logicalSize = 100;
+        f1.allocatedSize = 4096;
+        FileRecord f2{};
+        f2.id = 3;
+        f2.parentId = 0;
+        f2.name = QStringLiteral("b.sys");
+        f2.logicalSize = 200;
+        f2.allocatedSize = 8192;
+        FileRecord g1{};
+        g1.id = 4;
+        g1.parentId = 1;
+        g1.name = QStringLiteral("g");
+        g1.logicalSize = 50;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1, f2, g1});
+
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        QVERIFY(rootIdx.isValid());
+        QCOMPARE(model.rowCount(rootIdx), 2); // D + group (never 3)
+        const QModelIndex groupIdx = model.indexForNodeId(FileSystemModel::kRootFilesGroupId);
+        QVERIFY(groupIdx.isValid());
+        QCOMPARE(model.parent(groupIdx), rootIdx);
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColName, rootIdx)).toString(),
+                 QStringLiteral("[2 Files]"));
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx)).toULongLong(),
+                 static_cast<qulonglong>(300));
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColAllocated, rootIdx)).toULongLong(),
+                 static_cast<qulonglong>(12288));
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColFiles, rootIdx)).toUInt(),
+                 static_cast<quint32>(2));
+        // Totals count members once (group sums are display-only).
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(350));
+
+        // Members list through the group, individually addressable.
+        QCOMPARE(model.rowCount(groupIdx), 2);
+        QVERIFY(model.indexForNodeId(2).isValid());
+        QVERIFY(model.indexForNodeId(3).isValid());
+        QCOMPARE(model.parent(model.indexForNodeId(2)), groupIdx);
+
+        // A later batch grows the same group row in place.
+        FileRecord f3{};
+        f3.id = 5;
+        f3.parentId = 0;
+        f3.name = QStringLiteral("c.sys");
+        f3.logicalSize = 50;
+        f3.allocatedSize = 4096;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{f3});
+        QCOMPARE(model.rowCount(rootIdx), 2); // still D + group
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColName, rootIdx)).toString(),
+                 QStringLiteral("[3 Files]"));
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx)).toULongLong(),
+                 static_cast<qulonglong>(350));
+        QCOMPARE(model.rowCount(groupIdx), 3);
+        QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(400));
+    }
+
+    void omitsGroupRowWithoutRootFiles()
+    {
+        // No root-level files: directories list directly, no group row.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir});
+
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        QCOMPARE(model.rowCount(rootIdx), 1); // D only
+        QVERIFY(!model.indexForNodeId(FileSystemModel::kRootFilesGroupId).isValid());
     }
 
     void treeFilterSearchesRecursively()

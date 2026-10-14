@@ -235,6 +235,26 @@
   details independent). 14/14 green, lint clean. One compile
   catch: `sortByColumn` is view-level, `sort` is proxy-level.
 
+## Current (2026-10-14) — spec 005 slice 005c (root-file group row)
+
+- Root-level files aggregate into a synthetic `[N Files]` group row
+  (reserved id, container semantics): no individual tree rows for
+  them; sums roll up incrementally (engine never addresses the id,
+  so no double-count); members list through group selection via the
+  existing details projection; mtime stays empty (no single honest
+  value). Applies to the scan root's direct files; ordinary
+  directories list members individually.
+- Refactor: `insertGrouped` splits root-level batches (dirs vs files)
+  into `insertRowsUnder` + `insertRootFileMembers` with a shared
+  drain helper; one `physicalSize`→`allocatedSize` field-name catch
+  of my own before tests ran.
+- Tests: `groupsRootLevelFilesWithExactSums` (sums, growth across
+  batches, member listing, no double-count in totals) +
+  `omitsGroupRowWithoutRootFiles`; updated model/pipeline/ui suites
+  (incl. bars drill-down now landing on the group). 14/14 green,
+  lint clean. One test-expectation catch of mine: the group (100)
+  sorts above an unsummarized dir (0) — correct Size↓ behavior.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

@@ -13,6 +13,7 @@
 #include <QTreeView>
 
 #include <fstream>
+#include <functional>
 #include <string>
 
 #include "../src/models/FileSystemModel.h"
@@ -245,12 +246,13 @@ private slots:
         QVERIFY(details != nullptr);
         QCOMPARE(details->horizontalHeader()->sortIndicatorSection(), FileSystemModel::ColSize);
         QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::DescendingOrder);
-        // Largest first under the root: f1 (100) before D (0).
+        // Largest first under the root: the "[1 Files]" group (100)
+        // before unsummarized D (0). Ties keep insertion order.
         const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
         QVERIFY(treeRoot.isValid());
         QCOMPARE(tree->model()->rowCount(treeRoot), 2);
         QCOMPARE(tree->model()->data(tree->model()->index(0, FileSystemModel::ColName, treeRoot)).toString(),
-                 QStringLiteral("f1"));
+                 QStringLiteral("[1 Files]"));
         QCOMPARE(tree->model()->data(tree->model()->index(1, FileSystemModel::ColName, treeRoot)).toString(),
                  QStringLiteral("D"));
     }
@@ -374,17 +376,25 @@ private slots:
         auto* tree = win.findChild<QTreeView*>();
         QVERIFY(tree != nullptr);
         // The tree proxy sorts: locate rows by name, never by position.
-        // Top level holds the visible root; D/f1 live beneath it.
-        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
-        const auto proxyRowByName = [&](const QString& name) {
-            for (int r = 0; r < tree->model()->rowCount(treeRoot); ++r) {
-                const QModelIndex idx =
-                    tree->model()->index(r, FileSystemModel::ColName, treeRoot);
-                if (tree->model()->data(idx).toString() == name) {
+        // Root-level files aggregate (spec 005c), so search recursively
+        // — group members live one level down.
+        const std::function<QModelIndex(const QModelIndex&, const QString&)> findUnder =
+            [&](const QModelIndex& parent, const QString& name) -> QModelIndex {
+            const QAbstractItemModel* m = tree->model();
+            for (int r = 0; r < m->rowCount(parent); ++r) {
+                const QModelIndex idx = m->index(r, FileSystemModel::ColName, parent);
+                if (m->data(idx).toString() == name) {
                     return idx;
+                }
+                const QModelIndex under = findUnder(idx, name);
+                if (under.isValid()) {
+                    return under;
                 }
             }
             return QModelIndex{};
+        };
+        const auto proxyRowByName = [&](const QString& name) {
+            return findUnder(QModelIndex{}, name);
         };
         const QModelIndex dIdx = proxyRowByName(QStringLiteral("D"));
         QVERIFY(dIdx.isValid());
@@ -445,11 +455,11 @@ private slots:
 
         // Bar click drives the tree through real wiring.
         QSignalSpy clickedSpy{bars, &BarWidget::barClicked};
-        bars->selectRow(1); // f1, the smaller bar
+        bars->selectRow(1); // group row, the smaller bar (root files aggregate)
         QCOMPARE(clickedSpy.count(), 1);
-        QCOMPARE(clickedSpy.at(0).at(0).toUInt(), static_cast<quint32>(2));
+        QCOMPARE(clickedSpy.at(0).at(0).toUInt(), FileSystemModel::kRootFilesGroupId);
         const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
-        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(2));
+        QCOMPARE(model.nodeIdForIndex(curSrc), FileSystemModel::kRootFilesGroupId);
 
         // Bars follow folder selection like the treemap does.
         const QModelIndex barsRoot = tree->model()->index(0, FileSystemModel::ColName);
@@ -716,7 +726,7 @@ private slots:
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
         QCOMPARE(tree->model()->rowCount(), 1); // still just the root row
         const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
-        QCOMPARE(tree->model()->rowCount(treeRoot), 2); // D + f1.txt, unfiltered
+        QCOMPARE(tree->model()->rowCount(treeRoot), 2); // D + group, unfiltered
 
         // Top click selects the node in the tree through real wiring.
         topView->clicked(topView->model()->index(0, 0));
