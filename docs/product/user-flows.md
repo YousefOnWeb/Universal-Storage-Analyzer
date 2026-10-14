@@ -1,15 +1,21 @@
 # User flows
 
-## F1 — Scan a local folder (Sprint 1)
+## F1 — Scan a local folder (Sprint 1 + spec 005 hierarchy)
 
-1. Launch app (window geometry + theme restored).
+1. Launch app (window geometry, splitters, units, target, and details
+   sort restored; tree sort is always Size-descending).
 2. Confirm target in the toolbar (Browse… or paste path). Elevated
    launches additionally enable the direct volume reader automatically.
-3. Press Start (F5). Status shows `Scanning…`, tree streams in batches.
+3. Press Start (F5). Status shows `Scanning…`, tree streams in batches
+   (names + hierarchy only, left pane).
 4. Browse/select nodes mid-scan; Details tab follows selection.
-5. Scan ends: status returns to `Ready` (with a skipped count when
-   directories were inaccessible); a single summary dialog lists skipped
-   paths if there were any. Fatal errors (bad target) pop up immediately.
+5. Scan ends: the volume-root row (`C:\`) selects itself and expands;
+   details list the volume's direct contents with root-level files
+   grouped under `[N Files]`; the tree settles Size-descending
+   (one full finish sort); status returns to `Ready` (with a skipped
+   count when directories were inaccessible); a single summary dialog
+   lists skipped paths if there were any. Fatal errors (bad target)
+   pop up immediately.
 
 ## F0 — Headless scan (CLI, no GUI)
 

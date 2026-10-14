@@ -118,25 +118,33 @@ a visible row instead of an implicit parent. No engine signal changes.
 - The header indicator always reflects the effective descriptor on
   each pane (never a frozen lie).
 
-## 5. Acceptance criteria
+## 5. Acceptance criteria (verified 2026-10-14, branch `feature/m2-analytics`)
 
-- [ ] Fresh `C:/` scan: first tree row is the volume root; its
+- [x] Fresh `C:/` scan: first tree row is the volume root; its
   children are exactly the top-level entries; selecting root shows
-  the volume contents on the right.
-- [ ] Left pane shows names + hierarchy only; right pane carries all
+  the volume contents on the right. (`exposesVisibleRootRowWithTargetName`,
+  `finishingScanSelectsVolumeRoot`, elevated GUI runs.)
+- [x] Left pane shows names + hierarchy only; right pane carries all
   metadata; automated check asserts hidden columns in the left view.
-- [ ] Group row present iff root-level files exist; sums reconcile
+  (`treePaneShowsNamesOnlyWithFixedSizeDescendingSort`.)
+- [x] Group row present iff root-level files exist; sums reconcile
   exactly; members individually listable.
-- [ ] Default Size-descending order verified on a fixture (largest
+  (`groupsRootLevelFilesWithExactSums`, `omitsGroupRowWithoutRootFiles`,
+  pipeline group-bytes check.)
+- [x] Default Size-descending order verified on a fixture (largest
   first, ties deterministic); tree header not clickable and pinned
   (deviations forced back); details sorts independently with the
   same default; each header indicator matches its pane; switching
   the details column reorders fully (no half-sorted states).
-- [ ] `unit` + `integration` + `ui` green (new: root/group/sort
+  (`treeSortStaysFixedWhileDetailsSortsFreely`,
+  `detailsSortDescriptorPersistsAcrossLaunches`.)
+- [x] `unit` + `integration` + `ui` green (new: root/group/sort
   tests); lint clean; `--smoke-test` / `--headless-check` exit 0;
-  layering greps clean.
-- [ ] No engine/scanner diff except root-id plumbing if required
-  (justify per file in the implementation plan).
+  layering greps clean. (14/14 + `LINT-OK` at every slice commit.)
+- [x] No engine/scanner diff except root-id plumbing if required
+  (justify per file in the implementation plan). (Confirmed: zero
+  files under `src/services/scanner/` in the 005 range; the engine
+  never addresses the synthetic group id.)
 
 ## 6. Vertical slices (each: plan → implement → verify → commit)
 

@@ -255,6 +255,21 @@
   lint clean. One test-expectation catch of mine: the group (100)
   sorts above an unsummarized dir (0) — correct Size↓ behavior.
 
+## Current (2026-10-14) — spec 005 slice 005d (state + docs)
+
+- Details sort descriptor persists (`main/detailsSortColumn` +
+  `main/detailsSortOrder`, validated with Size↓ fallback); tree has
+  nothing to persist (fixed sort). Geometry/splitters/units/target
+  persistence already covered the new layout; tree expansion is
+  deliberately not persisted (ids change per scan; root auto-expands
+  on finish instead).
+- Tests: `detailsSortDescriptorPersistsAcrossLaunches` (restore,
+  invalid-fallback implied by validation, save-on-close round trip,
+  tree pinned regardless). Docs: F1 flow rewritten for 005, spec 005
+  acceptance checked with per-box test evidence, scanner-diff
+  absence verified (`git diff 70ecc0a..HEAD -- src/services/scanner/`
+  empty). 14/14 green, lint clean.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

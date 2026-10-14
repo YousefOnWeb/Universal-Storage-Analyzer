@@ -645,6 +645,20 @@ void MainWindow::restoreWindowState()
     unitsCombo_->setCurrentText(unit);
     targetEdit_->setText(
         s.value(QStringLiteral("main/target"), QDir::homePath()).toString());
+    // Spec 005d: the details sort descriptor persists (tree sort is
+    // fixed, so it has nothing to remember). Validated: out-of-range
+    // columns fall back to the Size-descending default.
+    const int sortCol = s.value(QStringLiteral("main/detailsSortColumn"),
+                                FileSystemModel::ColSize)
+                            .toInt();
+    const Qt::SortOrder sortOrder = static_cast<Qt::SortOrder>(
+        s.value(QStringLiteral("main/detailsSortOrder"),
+                static_cast<int>(Qt::DescendingOrder))
+            .toInt());
+    if (sortCol >= 0 && sortCol < FileSystemModel::ColCount
+        && (sortOrder == Qt::AscendingOrder || sortOrder == Qt::DescendingOrder)) {
+        detailsView_->sortByColumn(sortCol, sortOrder);
+    }
 }
 
 void MainWindow::saveWindowState()
@@ -657,6 +671,10 @@ void MainWindow::saveWindowState()
     s.setValue(QStringLiteral("main/rightSplitter"), rightSplitter_->saveState());
     s.setValue(QStringLiteral("main/units"), unitsCombo_->currentText());
     s.setValue(QStringLiteral("main/target"), targetEdit_->text());
+    s.setValue(QStringLiteral("main/detailsSortColumn"),
+               detailsView_->horizontalHeader()->sortIndicatorSection());
+    s.setValue(QStringLiteral("main/detailsSortOrder"),
+               static_cast<int>(detailsView_->horizontalHeader()->sortIndicatorOrder()));
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

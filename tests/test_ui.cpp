@@ -735,6 +735,68 @@ private slots:
         const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
         QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(3));
     }
+
+    void detailsSortDescriptorPersistsAcrossLaunches()
+    {
+        // Spec 005d: the details sort descriptor round-trips through
+        // QSettings; garbage falls back to the Size-descending default;
+        // the tree stays pinned regardless of restored details state.
+        SettingsGuard guard({QStringLiteral("main/detailsSortColumn"),
+                             QStringLiteral("main/detailsSortOrder")});
+        {
+            QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
+                            QStringLiteral("UniversalStorageAnalyzer")};
+            setup.setValue(QStringLiteral("main/detailsSortColumn"),
+                           FileSystemModel::ColName);
+            setup.setValue(QStringLiteral("main/detailsSortOrder"),
+                           static_cast<int>(Qt::AscendingOrder));
+        }
+        {
+            FileSystemModel model{};
+            ScannerService scanner{};
+            ThemeManager themes{testApp()};
+            MainWindow win{&model, &scanner, &themes};
+            win.show();
+            auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+            QVERIFY(details != nullptr);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorSection(),
+                     FileSystemModel::ColName);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::AscendingOrder);
+            auto* tree = win.findChild<QTreeView*>();
+            QVERIFY(tree != nullptr);
+            QCOMPARE(tree->header()->sortIndicatorSection(), FileSystemModel::ColSize);
+
+            // Close persists the live descriptor for the next launch.
+            details->sortByColumn(FileSystemModel::ColAllocated, Qt::DescendingOrder);
+            win.close();
+        }
+        QSettings check{QStringLiteral("UniversalStorageAnalyzer"),
+                        QStringLiteral("UniversalStorageAnalyzer")};
+        QCOMPARE(check.value(QStringLiteral("main/detailsSortColumn")).toInt(),
+                 FileSystemModel::ColAllocated);
+        QCOMPARE(check.value(QStringLiteral("main/detailsSortOrder")).toInt(),
+                 static_cast<int>(Qt::DescendingOrder));
+
+        // Garbage in settings falls back to the Size-descending default.
+        {
+            QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
+                            QStringLiteral("UniversalStorageAnalyzer")};
+            setup.setValue(QStringLiteral("main/detailsSortColumn"), 99);
+            setup.setValue(QStringLiteral("main/detailsSortOrder"), 7);
+        }
+        {
+            FileSystemModel model{};
+            ScannerService scanner{};
+            ThemeManager themes{testApp()};
+            MainWindow win{&model, &scanner, &themes};
+            win.show();
+            auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+            QVERIFY(details != nullptr);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorSection(),
+                     FileSystemModel::ColSize);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::DescendingOrder);
+        }
+    }
 };
 
 int main(int argc, char* argv[])
