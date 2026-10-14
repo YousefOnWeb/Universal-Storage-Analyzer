@@ -211,6 +211,76 @@ private slots:
         QCOMPARE(detailsModel->rowCount(), 2);
     }
 
+    void treePaneShowsNamesOnlyWithSharedSizeDescendingSort()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        // Spec 005b: names + hierarchy only — metadata columns hidden.
+        for (int c = FileSystemModel::ColSize; c < FileSystemModel::ColCount; ++c) {
+            QVERIFY(tree->isColumnHidden(c));
+        }
+        // Shared default descriptor: Size descending on both headers.
+        QCOMPARE(tree->header()->sortIndicatorSection(), FileSystemModel::ColSize);
+        QCOMPARE(tree->header()->sortIndicatorOrder(), Qt::DescendingOrder);
+        auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+        QVERIFY(details != nullptr);
+        QCOMPARE(details->horizontalHeader()->sortIndicatorSection(), FileSystemModel::ColSize);
+        QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::DescendingOrder);
+        // Largest first under the root: f1 (100) before D (0).
+        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
+        QVERIFY(treeRoot.isValid());
+        QCOMPARE(tree->model()->rowCount(treeRoot), 2);
+        QCOMPARE(tree->model()->data(tree->model()->index(0, FileSystemModel::ColName, treeRoot)).toString(),
+                 QStringLiteral("f1"));
+        QCOMPARE(tree->model()->data(tree->model()->index(1, FileSystemModel::ColName, treeRoot)).toString(),
+                 QStringLiteral("D"));
+    }
+
+    void sortHeaderSyncsAcrossPanes()
+    {
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+        QVERIFY(details != nullptr);
+        auto* detailsProxy = qobject_cast<QSortFilterProxyModel*>(details->model());
+        QVERIFY(detailsProxy != nullptr);
+
+        // Either header moves the shared descriptor onto both proxies.
+        tree->sortByColumn(FileSystemModel::ColName, Qt::AscendingOrder);
+        QCOMPARE(detailsProxy->sortColumn(), FileSystemModel::ColName);
+        QCOMPARE(details->horizontalHeader()->sortIndicatorSection(), FileSystemModel::ColName);
+        details->sortByColumn(FileSystemModel::ColAllocated, Qt::DescendingOrder);
+        QCOMPARE(treeProxy->sortColumn(), FileSystemModel::ColAllocated);
+        QCOMPARE(tree->header()->sortIndicatorSection(), FileSystemModel::ColAllocated);
+    }
+
     void collectsSkipsIntoEndOfScanSummary()
     {
         QTemporaryDir tmp{};

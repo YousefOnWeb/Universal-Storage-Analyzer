@@ -209,6 +209,20 @@
   model/pipeline/ui suites for the root row. 14/14 green, lint
   clean, layering untouched (models only + selection call).
 
+## Current (2026-10-14) — spec 005 slice 005b (tree-only pane + shared sort)
+
+- Left `QTreeView` hides metadata columns (names + hierarchy only);
+  tree + details share one descriptor, Size-descending by default
+  (view-level sorts so both header indicators reflect it from the
+  start); either header click mirrors onto the other view
+  (signal-blocked, no ping-pong); comparators read the numeric sort
+  role with stable ties. Live-stream freeze behavior unchanged.
+- Tests: `treePaneShowsNamesOnlyWithSharedSizeDescendingSort`
+  (hidden columns, both indicators, largest-first) +
+  `sortHeaderSyncsAcrossPanes` (both directions). 14/14 green, lint
+  clean. One compile catch: `sortByColumn` is view-level,
+  `sort` is proxy-level.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

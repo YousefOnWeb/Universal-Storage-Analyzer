@@ -19,6 +19,7 @@
 #include <QMessageBox>
 #include <QScrollArea>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QStorageInfo>
 #include <QToolBar>
@@ -74,6 +75,21 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     treeProxy_->setSourceModel(model_);
     treeProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     tree_->setModel(treeProxy_);
+    // Spec 005b: the left pane navigates (names + hierarchy only —
+    // sizes, counts, and timestamps live on the right), and tree +
+    // details share one sort descriptor, Size-descending by default.
+    // Comparators read the numeric sort role; ties keep insertion
+    // order (stable sort), so a given input always orders identically.
+    for (int c = FileSystemModel::ColSize; c < FileSystemModel::ColCount; ++c) {
+        tree_->hideColumn(c);
+    }
+    // View-level sorts so the header indicators reflect the descriptor
+    // from the start (proxy-level sorts would leave them blank).
+    tree_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
+    connect(tree_->header(), &QHeaderView::sortIndicatorChanged, this,
+            [this](int column, Qt::SortOrder order) {
+                applySharedSort(tree_->header(), column, order);
+            });
 
     rightSplitter_ = new QSplitter(Qt::Vertical, splitter_);
     tabs_ = new QTabWidget(rightSplitter_);
@@ -89,6 +105,11 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     detailsProxy_->setFilterKeyColumn(0);
     detailsProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     detailsView_->setModel(detailsProxy_);
+    detailsView_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
+    connect(detailsView_->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this,
+            [this](int column, Qt::SortOrder order) {
+                applySharedSort(detailsView_->horizontalHeader(), column, order);
+            });
     detailsView_->horizontalHeader()->setStretchLastSection(true);
     tabs_->addTab(detailsView_, QStringLiteral("Details"));
     bar_ = new BarWidget(model_);
@@ -441,6 +462,24 @@ void MainWindow::onQuickSearchChanged(const QString& text)
 {
     treeProxy_->setSearchText(text);
     detailsProxy_->setFilterFixedString(text);
+}
+
+void MainWindow::applySharedSort(QHeaderView* changed, int column, Qt::SortOrder order)
+{
+    // One descriptor for both panes: mirror the indicator and re-sort
+    // the other proxy. The blocker stops the mirror from echoing back.
+    // Header-initiated sorts are explicit user actions, so their cost
+    // (a full proxy sort) is expected — unlike live stream inserts,
+    // which stay frozen per the existing scan behavior.
+    QHeaderView* other = (changed == tree_->header()) ? detailsView_->horizontalHeader()
+                                                      : tree_->header();
+    QSortFilterProxyModel* otherProxy =
+        (changed == tree_->header())
+            ? static_cast<QSortFilterProxyModel*>(detailsProxy_)
+            : static_cast<QSortFilterProxyModel*>(treeProxy_);
+    const QSignalBlocker block(other);
+    other->setSortIndicator(column, order);
+    otherProxy->sort(column, order);
 }
 
 void MainWindow::onExtensionPicked()
