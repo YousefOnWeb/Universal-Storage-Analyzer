@@ -645,20 +645,30 @@ void MainWindow::restoreWindowState()
     unitsCombo_->setCurrentText(unit);
     targetEdit_->setText(
         s.value(QStringLiteral("main/target"), QDir::homePath()).toString());
-    // Spec 005d: the details sort descriptor persists (tree sort is
-    // fixed, so it has nothing to remember). Validated: out-of-range
-    // columns fall back to the Size-descending default.
-    const int sortCol = s.value(QStringLiteral("main/detailsSortColumn"),
-                                FileSystemModel::ColSize)
-                            .toInt();
-    const Qt::SortOrder sortOrder = static_cast<Qt::SortOrder>(
-        s.value(QStringLiteral("main/detailsSortOrder"),
-                static_cast<int>(Qt::DescendingOrder))
-            .toInt());
-    if (sortCol >= 0 && sortCol < FileSystemModel::ColCount
-        && (sortOrder == Qt::AscendingOrder || sortOrder == Qt::DescendingOrder)) {
-        detailsView_->sortByColumn(sortCol, sortOrder);
+    // Spec 005d (+006a column insertion): the descriptor persists with
+    // a version tag. Unversioned values predate the share column, when
+    // section 5 meant Last Modified and only 0-5 existed: migrate those
+    // (5 -> Modified, 0-4 identical), drop anything else. Without this,
+    // a stale saved 5 would silently rebind to "% of Parent".
+    static constexpr int kDetailsSortVersion = 1;
+    const int savedCol = s.value(QStringLiteral("main/detailsSortColumn"), -1).toInt();
+    const int savedOrder = s.value(QStringLiteral("main/detailsSortOrder"), -1).toInt();
+    const int savedVer = s.value(QStringLiteral("main/detailsSortVersion"), 0).toInt();
+    const bool orderOk =
+        savedOrder == static_cast<int>(Qt::AscendingOrder)
+        || savedOrder == static_cast<int>(Qt::DescendingOrder);
+    int sortCol = FileSystemModel::ColSize;
+    Qt::SortOrder sortOrder = Qt::DescendingOrder;
+    if (savedVer == kDetailsSortVersion && savedCol >= 0
+        && savedCol < FileSystemModel::ColCount && orderOk) {
+        sortCol = savedCol;
+        sortOrder = static_cast<Qt::SortOrder>(savedOrder);
+    } else if (savedVer == 0 && savedCol >= 0 && savedCol < 6 && orderOk) {
+        // Pre-share layout had six columns (0-5); only section 5 moved.
+        sortCol = (savedCol == 5) ? FileSystemModel::ColModified : savedCol;
+        sortOrder = static_cast<Qt::SortOrder>(savedOrder);
     }
+    detailsView_->sortByColumn(sortCol, sortOrder);
 }
 
 void MainWindow::saveWindowState()
@@ -675,6 +685,7 @@ void MainWindow::saveWindowState()
                detailsView_->horizontalHeader()->sortIndicatorSection());
     s.setValue(QStringLiteral("main/detailsSortOrder"),
                static_cast<int>(detailsView_->horizontalHeader()->sortIndicatorOrder()));
+    s.setValue(QStringLiteral("main/detailsSortVersion"), 1);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)

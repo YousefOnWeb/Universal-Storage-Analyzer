@@ -270,6 +270,24 @@
   absence verified (`git diff 70ecc0a..HEAD -- src/services/scanner/`
   empty). 14/14 green, lint clean.
 
+## Current (2026-10-15) — operator-found stale sort-column bug (fixed)
+
+- Operator's full-suite run failed 2 UI tests mine passed: their
+  profile holds unversioned `main/detailsSortColumn=5` (a
+  Last-Modified click from the 6-column era), which 005d restore
+  applied raw — silently rebinding to `% of Parent` after 006a
+  inserted the column. Environment-dependent tests found it, not
+  code review.
+- Fix: version-tagged persistence (`main/detailsSortVersion=1`);
+  unversioned 0-4 pass through, unversioned 5 migrates to Modified,
+  anything else falls back — so the operator's real preference
+  survives the transition instead of rebinding or resetting.
+- Tests: migration case added; `PinnedDefaultSort` helper pins a
+  versioned default in sort-asserting tests (ambient profiles can no
+  longer leak in). Reproduced the dirty profile via registry seed:
+  14/14 green with it present, profile cleaned after. 14/14 green,
+  lint clean.
+
 ## Current (2026-10-15) — spec 006 slice 006a (file counts + share)
 
 - File rows read Files `1` / Folders `0` in both roles (no more

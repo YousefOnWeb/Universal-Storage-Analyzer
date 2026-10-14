@@ -108,6 +108,25 @@ struct SettingsGuard {
     }
 };
 
+// Sort-default determinism: MainWindow restores the details
+// descriptor from the ambient profile, so tests asserting defaults
+// pin a versioned Size-descending descriptor first (the guard inside
+// restores the user's keys on scope exit).
+struct PinnedDefaultSort {
+    SettingsGuard guard{QStringList{QStringLiteral("main/detailsSortColumn"),
+                                    QStringLiteral("main/detailsSortOrder"),
+                                    QStringLiteral("main/detailsSortVersion")}};
+    PinnedDefaultSort()
+    {
+        QSettings s{QStringLiteral("UniversalStorageAnalyzer"),
+                    QStringLiteral("UniversalStorageAnalyzer")};
+        s.setValue(QStringLiteral("main/detailsSortColumn"), FileSystemModel::ColSize);
+        s.setValue(QStringLiteral("main/detailsSortOrder"),
+                   static_cast<int>(Qt::DescendingOrder));
+        s.setValue(QStringLiteral("main/detailsSortVersion"), 1);
+    }
+};
+
 } // namespace
 
 class TestUi : public QObject {
@@ -214,6 +233,7 @@ private slots:
 
     void treePaneShowsNamesOnlyWithFixedSizeDescendingSort()
     {
+        PinnedDefaultSort sortPin{};
         FileSystemModel model{};
         ScannerService scanner{};
         ThemeManager themes{testApp()};
@@ -259,6 +279,7 @@ private slots:
 
     void treeSortStaysFixedWhileDetailsSortsFreely()
     {
+        PinnedDefaultSort sortPin{};
         FileSystemModel model{};
         ScannerService scanner{};
         ThemeManager themes{testApp()};
@@ -742,7 +763,8 @@ private slots:
         // QSettings; garbage falls back to the Size-descending default;
         // the tree stays pinned regardless of restored details state.
         SettingsGuard guard({QStringLiteral("main/detailsSortColumn"),
-                             QStringLiteral("main/detailsSortOrder")});
+                             QStringLiteral("main/detailsSortOrder"),
+                             QStringLiteral("main/detailsSortVersion")});
         {
             QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
                             QStringLiteral("UniversalStorageAnalyzer")};
@@ -795,6 +817,29 @@ private slots:
             QCOMPARE(details->horizontalHeader()->sortIndicatorSection(),
                      FileSystemModel::ColSize);
             QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::DescendingOrder);
+        }
+
+        // Unversioned section 5 predates the share column and meant
+        // Last Modified: it migrates instead of rebinding to shares.
+        {
+            QSettings setup{QStringLiteral("UniversalStorageAnalyzer"),
+                            QStringLiteral("UniversalStorageAnalyzer")};
+            setup.setValue(QStringLiteral("main/detailsSortColumn"), 5);
+            setup.setValue(QStringLiteral("main/detailsSortOrder"),
+                           static_cast<int>(Qt::AscendingOrder));
+            setup.remove(QStringLiteral("main/detailsSortVersion"));
+        }
+        {
+            FileSystemModel model{};
+            ScannerService scanner{};
+            ThemeManager themes{testApp()};
+            MainWindow win{&model, &scanner, &themes};
+            win.show();
+            auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+            QVERIFY(details != nullptr);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorSection(),
+                     FileSystemModel::ColModified);
+            QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::AscendingOrder);
         }
     }
 };
