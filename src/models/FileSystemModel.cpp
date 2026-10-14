@@ -119,9 +119,18 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         case ColAllocated:
             return static_cast<quint64>(node->allocatedSize);
         case ColFiles:
-            return node->isDirectory ? QVariant(node->fileCount) : QVariant{};
+            // Spec 006a: a file row IS one file (never an empty cell —
+            // empty reads as "uncomputed", zero is a value).
+            return node->isDirectory ? QVariant(node->fileCount) : QVariant(quint32(1));
         case ColFolders:
-            return node->isDirectory ? QVariant(node->folderCount) : QVariant{};
+            return node->isDirectory ? QVariant(node->folderCount) : QVariant(quint32(0));
+        case ColSharePct: {
+            double pct{0.0};
+            if (!sharePercent(node, &pct)) {
+                return QStringLiteral("—");
+            }
+            return QString::number(pct, 'f', 1) + QStringLiteral("%");
+        }
         case ColModified:
             if (node->lastModifiedTs == 0) {
                 return {};
@@ -145,9 +154,16 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         case ColAllocated:
             return static_cast<quint64>(node->allocatedSize);
         case ColFiles:
-            return node->isDirectory ? QVariant(node->fileCount) : QVariant(quint32(0));
+            return node->isDirectory ? QVariant(node->fileCount) : QVariant(quint32(1));
         case ColFolders:
             return node->isDirectory ? QVariant(node->folderCount) : QVariant(quint32(0));
+        case ColSharePct: {
+            double pct{0.0};
+            if (!sharePercent(node, &pct)) {
+                return -1.0; // undefined sorts below every real share
+            }
+            return pct;
+        }
         case ColModified:
             return static_cast<qint64>(node->lastModifiedTs);
         default:
@@ -173,6 +189,8 @@ QVariant FileSystemModel::headerData(int section, Qt::Orientation orientation, i
         return QStringLiteral("Files");
     case ColFolders:
         return QStringLiteral("Folders");
+    case ColSharePct:
+        return QStringLiteral("% of Parent");
     case ColModified:
         return QStringLiteral("Last Modified");
     default:
@@ -575,4 +593,16 @@ void FileSystemModel::refreshNode(const QModelIndex& top, Node* node)
 FileSystemModel::Node* FileSystemModel::nodeFromIndex(const QModelIndex& index) const
 {
     return static_cast<Node*>(index.internalPointer());
+}
+
+bool FileSystemModel::sharePercent(const Node* node, double* pctOut)
+{
+    if (node == nullptr || node->parent == nullptr || node->parent->logicalSize == 0) {
+        return false;
+    }
+    if (pctOut != nullptr) {
+        *pctOut = 100.0 * static_cast<double>(node->logicalSize)
+                  / static_cast<double>(node->parent->logicalSize);
+    }
+    return true;
 }

@@ -270,6 +270,18 @@
   absence verified (`git diff 70ecc0a..HEAD -- src/services/scanner/`
   empty). 14/14 green, lint clean.
 
+## Current (2026-10-15) — spec 006 slice 006a (file counts + share)
+
+- File rows read Files `1` / Folders `0` in both roles (no more
+  empty "uncomputed" cells); new `% of Parent` column (one decimal,
+  em dash + below-all sort key on root/zero denominators, computed
+  lazily so sweep finals settle it without extra machinery).
+- Tests: file-row role matrix updated + `shareOfParentComputesExactly`
+  (pre-sweep dash, post-sweep 83.3%/16.7%, header label). 14/14
+  green, lint clean. Two self-catches: a brace-mangling no-op edit
+  reverted before commit, and a destructive progress.md header swap
+  restored immediately (append-only discipline re-confirmed).
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

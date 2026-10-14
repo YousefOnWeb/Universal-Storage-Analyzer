@@ -24,8 +24,9 @@ public:
         ColAllocated = 2,
         ColFiles = 3,
         ColFolders = 4,
-        ColModified = 5,
-        ColCount = 6,
+        ColSharePct = 5,
+        ColModified = 6,
+        ColCount = 7,
     };
 
     enum Roles : int {
@@ -99,6 +100,10 @@ private:
 
     Node* nodeFromIndex(const QModelIndex& index) const;
     void applyMetrics(Node* node, const BranchMetrics& metrics);
+    // Spec 006a: share of the parent's logical total. Returns false (no
+    // value, not zero) for the root and for zero parent totals; callers
+    // render the em dash / sort below real shares from that.
+    static bool sharePercent(const Node* node, double* pctOut);
     void refreshNode(const QModelIndex& top, Node* node);
     // Inserts one batch grouped into contiguous same-parent transactions.
     // Newly inserted ids drain any waiting children (recursive, sequential:

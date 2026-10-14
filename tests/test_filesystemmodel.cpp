@@ -2,6 +2,8 @@
 
 #include <QDir>
 
+#include <cmath>
+
 #include "../src/models/DetailsTableModel.h"
 #include "../src/models/FileSystemModel.h"
 #include "../src/models/StatsTableModel.h"
@@ -242,11 +244,14 @@ private slots:
         QVERIFY(fIdx.isValid());
         const QModelIndex filesCell =
             model.index(fIdx.row(), FileSystemModel::ColFiles, fIdx.parent());
-        // Files carry no counts: DisplayRole stays empty while SortRole
-        // pins a numeric zero so proxies sort instead of guessing.
-        QVERIFY(!model.data(filesCell).isValid());
+        // Spec 006a: a file row IS one file and zero folders — real
+        // values in both roles, never an empty "uncomputed" cell.
+        QCOMPARE(model.data(filesCell).toUInt(), static_cast<quint32>(1));
         QCOMPARE(model.data(filesCell, FileSystemModel::Roles::SortRole).toUInt(),
-                 static_cast<quint32>(0));
+                 static_cast<quint32>(1));
+        const QModelIndex foldersCell =
+            model.index(fIdx.row(), FileSystemModel::ColFolders, fIdx.parent());
+        QCOMPARE(model.data(foldersCell).toUInt(), static_cast<quint32>(0));
         QCOMPARE(model.nodeIdForIndex(fIdx), static_cast<quint32>(2));
         QCOMPARE(model.nodeIdForIndex(QModelIndex{}), static_cast<quint32>(0));
     }
@@ -443,6 +448,61 @@ private slots:
         const QModelIndex rootIdx = model.indexForNodeId(0);
         QCOMPARE(model.rowCount(rootIdx), 1); // D only
         QVERIFY(!model.indexForNodeId(FileSystemModel::kRootFilesGroupId).isValid());
+    }
+
+    void shareOfParentComputesExactly()
+    {
+        // Spec 006a: per-child share of the selected parent's logical
+        // total (one decimal); root and zero denominators show the em
+        // dash and sort below real shares.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        // No summaries yet: parent total is 0, every share undefined.
+        QCOMPARE(model.data(model.index(0, FileSystemModel::ColSharePct, rootIdx)).toString(),
+                 QStringLiteral("—"));
+        const QModelIndex groupIdx = model.indexForNodeId(FileSystemModel::kRootFilesGroupId);
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSharePct, rootIdx),
+                            FileSystemModel::Roles::SortRole).toDouble(), -1.0);
+
+        BranchMetrics r{};
+        r.nodeId = 0;
+        r.logicalSize = 600;
+        r.fileCount = 1;
+        r.folderCount = 1;
+        BranchMetrics d{};
+        d.nodeId = 1;
+        d.logicalSize = 500;
+        d.fileCount = 1;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), r);
+        model.onBranchMetricsUpdated(QStringLiteral("t"), d);
+
+        // D holds 500/600, the group (f1: 100) holds 100/600, root is dash.
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSharePct, rootIdx)).toString(),
+                 QStringLiteral("83.3%"));
+        QVERIFY(std::abs(model.data(model.index(dIdx.row(), FileSystemModel::ColSharePct, rootIdx),
+                                    FileSystemModel::Roles::SortRole).toDouble()
+                         - 100.0 * 500.0 / 600.0)
+                < 1e-9);
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSharePct, rootIdx)).toString(),
+                 QStringLiteral("16.7%"));
+        QCOMPARE(model.data(model.index(0, FileSystemModel::ColSharePct, QModelIndex{})).toString(),
+                 QStringLiteral("—"));
+        QCOMPARE(model.headerData(FileSystemModel::ColSharePct, Qt::Horizontal).toString(),
+                 QStringLiteral("% of Parent"));
     }
 
     void treeFilterSearchesRecursively()
