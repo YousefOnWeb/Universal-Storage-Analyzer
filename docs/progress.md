@@ -209,23 +209,31 @@
   model/pipeline/ui suites for the root row. 14/14 green, lint
   clean, layering untouched (models only + selection call).
 
-## Current (2026-10-14) — spec 005 slice 005b (tree-only pane + shared sort)
+## Current (2026-10-14) — extension→tree filter removed (review)
 
-- Left `QTreeView` hides metadata columns (names + hierarchy only);
-  tree + details share one descriptor, Size-descending by default
-  (view-level sorts so both header indicators reflect it from the
-  start); either header click mirrors onto the other view
-  (signal-blocked, no ping-pong); comparators read the numeric sort
-  role with stable ties. Live-stream freeze behavior unchanged.
+- Picking an Extensions row no longer filters the left tree: the
+  `extView` selection connection and `MainWindow::onExtensionPicked`
+  are gone, and the now-dead extension-filter mechanism is removed
+  from `TreeFilterProxyModel` (search-only now; unused member,
+  override, and include dropped too).
+- Tests: `treeFilterCombinesSearchAndExtension` rewritten as
+  search-only `treeFilterSearchesRecursively`; analytics UI test
+  asserts selection leaves the tree untouched (renamed to
+  `analyticsPanesPopulateAndSelect`). 14/14 green, lint clean.
+  Spec 002 §4d/§5 and the CHANGELOG amended (struck, not rewritten).
+
+## Current (2026-10-14) — spec 005 slice 005b (tree-only pane + fixed sort)
+
+- Left `QTreeView` hides metadata columns (names + hierarchy only).
+  First implemented with a shared tree+details descriptor, then
+  corrected per review: tree sort is FIXED Size-descending
+  (non-clickable header + enforcer + one full finish sort with dynamic
+  ordering for the drain); details sorts freely with the same default.
 - Tests: `treePaneShowsNamesOnlyWithFixedSizeDescendingSort`
   (hidden columns, both indicators, largest-first) +
   `treeSortStaysFixedWhileDetailsSortsFreely` (tree pinned,
   details independent). 14/14 green, lint clean. One compile
   catch: `sortByColumn` is view-level, `sort` is proxy-level.
-- Correction applied after review: tree sort is FIXED Size-descending
-  (non-clickable header + enforcer + one full finish sort with dynamic
-  ordering for the drain); details sorts freely with the same default.
-  The shared-descriptor design was removed from spec 005 §1/§4e.
 
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
@@ -234,9 +242,10 @@
   snapshots plus exact finals.
 - Treemap pane (squarified Qt-free layout, retained cache, debounced
   live refresh), Bars/Pie tabs (custom paint, no QtCharts), four
-  analytics panes with extension filtering and drill-down, owner
-  display names with lazy cache, disk telemetry + hysteresis throttle
-  with status display, options dialog (QSettings, live age
+  analytics panes with live data and click drill-down (extension rows
+  informational only — the tree filter was removed after review),
+  owner display names with lazy cache, disk telemetry + hysteresis
+  throttle with status display, options dialog (QSettings, live age
   re-bucketing, startup rules).
 - Probe chase (elevated): stale `$FILE_NAME` sizes and DOS-alias-first
   records fixed with live-record proof; downgrade notices moved out of

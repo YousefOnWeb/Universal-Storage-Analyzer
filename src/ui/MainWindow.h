@@ -45,7 +45,6 @@ private slots:
     void onThemeAction();
     void onOptions();
     void onAnalyticsUpdated(const QString& taskId, const AnalyticsData& data);
-    void onExtensionPicked();
 
 public slots:
     // Re-buckets the Age pane from in-memory mtimes (no I/O). Runs after

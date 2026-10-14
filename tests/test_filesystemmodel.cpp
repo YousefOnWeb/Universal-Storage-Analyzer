@@ -346,7 +346,7 @@ private slots:
         QCOMPARE(details.rowCount(), 2);
     }
 
-    void treeFilterCombinesSearchAndExtension()
+    void treeFilterSearchesRecursively()
     {
         FileSystemModel model{};
         model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
@@ -371,9 +371,8 @@ private slots:
         proxy.setSourceModel(&model);
         QCOMPARE(proxy.rowCount(), 1); // unfiltered: the visible root
 
-        // Extension filter: files must match, dirs pass, parents kept —
-        // the root survives as the ancestor chain's top.
-        proxy.setExtensionFilter(QStringLiteral(".log"));
+        // Search narrows to matches, keeping ancestor chains visible.
+        proxy.setSearchText(QStringLiteral("f2"));
         QCOMPARE(proxy.rowCount(), 1); // root (keeping D keeping f2.log)
         const QModelIndex rootProxy = proxy.index(0, 0);
         QCOMPARE(proxy.rowCount(rootProxy), 1); // D beneath root
@@ -381,20 +380,11 @@ private slots:
         QCOMPARE(proxy.rowCount(dProxy), 1);
         QCOMPARE(proxy.data(proxy.index(0, 0, dProxy)).toString(), QStringLiteral("f2.log"));
 
-        // Search narrows further; clearing both restores everything.
+        // No match hides everything; clearing restores the root.
         proxy.setSearchText(QStringLiteral("nope"));
         QCOMPARE(proxy.rowCount(), 0);
         proxy.setSearchText(QStringLiteral(""));
-        proxy.setExtensionFilter(QStringLiteral(""));
         QCOMPARE(proxy.rowCount(), 1);
-
-        // Search alone is recursive: nested hit keeps its chain visible.
-        proxy.setSearchText(QStringLiteral("f2"));
-        QCOMPARE(proxy.rowCount(), 1);
-        QCOMPARE(proxy.data(proxy.index(0, 0)).toString(),
-                 QDir::toNativeSeparators(QStringLiteral("C:/data"))); // root row
-        QCOMPARE(proxy.data(proxy.index(0, 0, proxy.index(0, 0))).toString(),
-                 QStringLiteral("D"));
     }
 
     void statsModelReplacesRowsWithSortKeys()

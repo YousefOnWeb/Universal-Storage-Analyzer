@@ -228,8 +228,6 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
                 statusLabel_->setText(throttled ? QStringLiteral("Throttled (disk busy)")
                                                 : QStringLiteral("Scanning…"));
             });
-    connect(extView_->selectionModel(), &QItemSelectionModel::selectionChanged, this,
-            [this](const QItemSelection&, const QItemSelection&) { onExtensionPicked(); });
     connect(topView_, &QTableView::clicked, this, [this](const QModelIndex& proxyIdx) {
         const QModelIndex src = topProxy_->mapToSource(proxyIdx);
         if (src.isValid()) {
@@ -477,21 +475,6 @@ void MainWindow::onQuickSearchChanged(const QString& text)
 {
     treeProxy_->setSearchText(text);
     detailsProxy_->setFilterFixedString(text);
-}
-
-void MainWindow::onExtensionPicked()
-{
-    const QModelIndexList selected = extView_->selectionModel()->selectedRows(0);
-    if (selected.isEmpty()) {
-        return;
-    }
-    const QModelIndex src = extProxy_->mapToSource(selected.front());
-    if (!src.isValid()) {
-        return;
-    }
-    const QString ext = extModel_->data(extModel_->index(src.row(), 0)).toString();
-    // Toggle: picking the active extension clears the filter again.
-    treeProxy_->setExtensionFilter(treeProxy_->extensionFilter() == ext ? QString{} : ext);
 }
 
 void MainWindow::onThemeAction()

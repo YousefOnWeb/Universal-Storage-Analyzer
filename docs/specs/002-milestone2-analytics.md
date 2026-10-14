@@ -111,9 +111,11 @@ unchanged.
 ### 4d. Analytics panes (replace placeholder tabs)
 
 - Extensions: table (extension, bytes, bytes %, files), sorted by
-  bytes desc; click a row → tree + details filter to `\.ext$`
+  bytes desc. ~~Click a row → tree + details filter to `\.ext$`
   (case-insensitive, recursive parents kept); click again (or Esc in
-  search) clears. `(no extension)` and `(other)` filterable the same way.
+  search) clears. `(no extension)` and `(other)` filterable the same way.~~
+  REMOVED after review: picking a row no longer touches the tree —
+  the pane is informational only (quick search still filters).
 - Top Files: live global top-N (path, size, parent), updates ≤1 Hz
   during scans, exact at finish; click → select node in tree
   (expands parents).
@@ -179,8 +181,10 @@ unchanged.
 - [ ] Extensions sum == scan totals; top-N list == true top-N of a
       fixture tree; age buckets match an independent recount; owner
       map exact where ids are captured.
-- [ ] Extension filter shows exactly the matching files (+ ancestor
-      chain) and clears completely.
+- [ ] ~~Extension filter shows exactly the matching files (+ ancestor
+      chain) and clears completely.~~ REMOVED after review: picking an
+      extension row no longer filters the tree (spec 002 §4d
+      amendment below); the panes stay purely informational.
 - [ ] Bars/Pie clicks select the right tree node; Pie free-space
       matches `QStorageInfo` within one refresh.
 - [ ] Throttle: synthetic sampler (over-threshold fixture) parks the

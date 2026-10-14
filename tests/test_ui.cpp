@@ -622,7 +622,7 @@ private slots:
                  QStringLiteral("200.00 B"));
     }
 
-    void analyticsPanesPopulateFilterAndSelect()
+    void analyticsPanesPopulateAndSelect()
     {
         FileSystemModel model{};
         ScannerService scanner{};
@@ -698,21 +698,10 @@ private slots:
         QVERIFY(ageView != nullptr);
         QCOMPARE(ageView->model()->rowCount(), 1);
 
-        // Extension pick filters the tree (dirs stay as containers).
-        // Top level holds the visible root; rows live beneath it.
+        // Extension picks do NOT filter the tree (removed behavior):
+        // selecting rows leaves the hierarchy untouched.
         auto* tree = win.findChild<QTreeView*>();
         QVERIFY(tree != nullptr);
-        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
-        const auto proxyRowByName = [&](const QString& name) {
-            for (int r = 0; r < tree->model()->rowCount(treeRoot); ++r) {
-                const QModelIndex idx =
-                    tree->model()->index(r, FileSystemModel::ColName, treeRoot);
-                if (tree->model()->data(idx).toString() == name) {
-                    return idx;
-                }
-            }
-            return QModelIndex{};
-        };
         const auto extRowByName = [&](const QString& name) {
             for (int r = 0; r < extView->model()->rowCount(); ++r) {
                 const QModelIndex idx = extView->model()->index(r, 0);
@@ -725,16 +714,9 @@ private slots:
         extView->selectionModel()->select(
             extRowByName(QStringLiteral(".log")),
             QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-        QCOMPARE(tree->model()->rowCount(), 1); // root (keeping D; f1.txt hidden)
-        const QModelIndex dIdx = proxyRowByName(QStringLiteral("D"));
-        QVERIFY(dIdx.isValid());
-        QCOMPARE(tree->model()->rowCount(dIdx), 1); // f2.log
-        // Picking the active extension again clears the filter.
-        extView->selectionModel()->clearSelection();
-        extView->selectionModel()->select(
-            extRowByName(QStringLiteral(".log")),
-            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
-        QCOMPARE(tree->model()->rowCount(), 1); // root again (D + f1.txt beneath)
+        QCOMPARE(tree->model()->rowCount(), 1); // still just the root row
+        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
+        QCOMPARE(tree->model()->rowCount(treeRoot), 2); // D + f1.txt, unfiltered
 
         // Top click selects the node in the tree through real wiring.
         topView->clicked(topView->model()->index(0, 0));
