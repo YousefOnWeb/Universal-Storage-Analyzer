@@ -75,20 +75,27 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     treeProxy_->setSourceModel(model_);
     treeProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     tree_->setModel(treeProxy_);
-    // Spec 005b: the left pane navigates (names + hierarchy only —
-    // sizes, counts, and timestamps live on the right), and tree +
-    // details share one sort descriptor, Size-descending by default.
-    // Comparators read the numeric sort role; ties keep insertion
-    // order (stable sort), so a given input always orders identically.
+    // Corrected requirement: the left pane navigates (names + hierarchy
+    // only — sizes, counts, and timestamps live on the right) and is
+    // ALWAYS Size-descending — a fixed descriptor, not a user setting.
+    // Comparators read the numeric sort role; ties keep insertion order
+    // (stable sort), so a given input always orders identically. The
+    // header is not clickable and any programmatic deviation is forced
+    // back (see the enforcer below); the details pane sorts
+    // independently with the same default.
     for (int c = FileSystemModel::ColSize; c < FileSystemModel::ColCount; ++c) {
         tree_->hideColumn(c);
     }
+    tree_->header()->setSectionsClickable(false);
     // View-level sorts so the header indicators reflect the descriptor
     // from the start (proxy-level sorts would leave them blank).
     tree_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
     connect(tree_->header(), &QHeaderView::sortIndicatorChanged, this,
             [this](int column, Qt::SortOrder order) {
-                applySharedSort(tree_->header(), column, order);
+                if (column != FileSystemModel::ColSize || order != Qt::DescendingOrder) {
+                    const QSignalBlocker block(tree_->header());
+                    tree_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
+                }
             });
 
     rightSplitter_ = new QSplitter(Qt::Vertical, splitter_);
@@ -106,10 +113,6 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     detailsProxy_->setSortRole(FileSystemModel::Roles::SortRole);
     detailsView_->setModel(detailsProxy_);
     detailsView_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
-    connect(detailsView_->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this,
-            [this](int column, Qt::SortOrder order) {
-                applySharedSort(detailsView_->horizontalHeader(), column, order);
-            });
     detailsView_->horizontalHeader()->setStretchLastSection(true);
     tabs_->addTab(detailsView_, QStringLiteral("Details"));
     bar_ = new BarWidget(model_);
@@ -403,6 +406,18 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
                               .arg(files)
                               .arg(dirs)
                               .arg(formatBytes(bytes, unitsCombo_->currentText())));
+    // Corrected requirement: the tree is ALWAYS Size-descending. Live
+    // inserts stream frozen (per-insert re-sorts would stall the loop),
+    // so the finish applies one full sort plus dynamic ordering for the
+    // sweep drain still in flight — synchronous, measured in seconds on
+    // million-row models, and the honest price of the invariant. The
+    // enforcer (ctor) keeps every later change pinned to it. Details
+    // re-enables dynamic ordering with the same default but stays
+    // freely user-sortable.
+    treeProxy_->setDynamicSortFilter(true);
+    tree_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
+    detailsProxy_->setDynamicSortFilter(true);
+    detailsView_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
     // Spec 005a: the finished scan selects its volume root, so the
     // right pane lists the volume's direct contents. Guarded by the
     // task check above; a filtered-out root simply selects nothing.
@@ -462,24 +477,6 @@ void MainWindow::onQuickSearchChanged(const QString& text)
 {
     treeProxy_->setSearchText(text);
     detailsProxy_->setFilterFixedString(text);
-}
-
-void MainWindow::applySharedSort(QHeaderView* changed, int column, Qt::SortOrder order)
-{
-    // One descriptor for both panes: mirror the indicator and re-sort
-    // the other proxy. The blocker stops the mirror from echoing back.
-    // Header-initiated sorts are explicit user actions, so their cost
-    // (a full proxy sort) is expected — unlike live stream inserts,
-    // which stay frozen per the existing scan behavior.
-    QHeaderView* other = (changed == tree_->header()) ? detailsView_->horizontalHeader()
-                                                      : tree_->header();
-    QSortFilterProxyModel* otherProxy =
-        (changed == tree_->header())
-            ? static_cast<QSortFilterProxyModel*>(detailsProxy_)
-            : static_cast<QSortFilterProxyModel*>(treeProxy_);
-    const QSignalBlocker block(other);
-    other->setSortIndicator(column, order);
-    otherProxy->sort(column, order);
 }
 
 void MainWindow::onExtensionPicked()

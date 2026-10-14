@@ -16,9 +16,12 @@ no size/counting changes, no new columns or formatting (spec 006).
    navigation, selection, and right-pane details agree.
 2. **Tree-only left pane** (`MainWindow` + `FileSystemModel`): the
    left view shows hierarchy only — names with expand/collapse,
-   default-sorted by size — without the Size/Allocated/Files/Folders/
-   Last-Modified columns that duplicate the details table. Metadata
-   inspection belongs to the right pane.
+   without the Size/Allocated/Files/Folders/Last-Modified columns
+   that duplicate the details table — and is ALWAYS sorted
+   Size-descending (a fixed descriptor, not a user setting; header
+   not clickable, deviations forced back). The right-hand details
+   pane defaults to the same order but sorts freely and
+   independently. Metadata inspection belongs to the right pane.
 3. **Initial selection = volume root**: after a scan finishes, the
    selection is the root node and the right pane lists the volume's
    direct contents. The scanned path (where the scan ran) and the
@@ -100,18 +103,20 @@ a visible row instead of an implicit parent. No engine signal changes.
 - Clicking the group lists its member files in the details pane
   (same projection as any directory selection).
 
-### 4e. Sorting contract
+### 4e. Sorting contract (corrected: fixed tree, free details)
 
-- One active sort descriptor (column, order) shared by tree and
-  details; header click changes it; header indicator always reflects
-  it. No second hidden sort path.
-- Comparators read `SortRole` numerics; directories-vs-files tiebreak
-  is deterministic and documented in the plan (proposal: directories
-  and files interleave purely by the sorted column, ties by name).
-- Live inserts during scans reuse the existing frozen-sort behavior
-  (no per-insert re-sort, no finish re-sort — specs 002/004);
-  the descriptor applies to newly visible rows without re-sorting
-  the world.
+- Tree: fixed Size-descending descriptor. Header not clickable; any
+  programmatic deviation is forced back. Live inserts stream frozen
+  (no per-insert re-sort); the finish applies one full sort plus
+  dynamic ordering for the sweep drain still in flight — synchronous,
+  measured in seconds on million-row models, and the honest price of
+  the always-sorted invariant.
+- Details: same default (Size-descending) but freely user-sortable;
+  dynamic ordering re-enabled at finish alongside the tree.
+- Comparators read `SortRole` numerics; ties keep insertion order
+  (stable sort) — deterministic for a given input on both panes.
+- The header indicator always reflects the effective descriptor on
+  each pane (never a frozen lie).
 
 ## 5. Acceptance criteria
 
@@ -123,8 +128,10 @@ a visible row instead of an implicit parent. No engine signal changes.
 - [ ] Group row present iff root-level files exist; sums reconcile
   exactly; members individually listable.
 - [ ] Default Size-descending order verified on a fixture (largest
-  first, ties deterministic); header indicator matches; switching
-  columns reorders fully (no half-sorted states).
+  first, ties deterministic); tree header not clickable and pinned
+  (deviations forced back); details sorts independently with the
+  same default; each header indicator matches its pane; switching
+  the details column reorders fully (no half-sorted states).
 - [ ] `unit` + `integration` + `ui` green (new: root/group/sort
   tests); lint clean; `--smoke-test` / `--headless-check` exit 0;
   layering greps clean.
@@ -136,8 +143,9 @@ a visible row instead of an implicit parent. No engine signal changes.
 - **005a root node + initial selection** (model + selection, no pane
   changes). Tests: root row shape, selection-on-finish, stale-scan
   guard.
-- **005b tree-only pane + sorting contract** (view columns, shared
-  descriptor, fixture order tests).
+- **005b tree-only pane + fixed tree sort** (hidden columns, pinned
+  Size-descending tree, free details with the same default, fixture
+  order tests).
 - **005c root-file group row** (aggregation, reconciliation, member
   listing tests).
 - **005d docs + state persistence** (splitter/geometry for the new

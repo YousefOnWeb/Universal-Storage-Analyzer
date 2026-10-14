@@ -211,7 +211,7 @@ private slots:
         QCOMPARE(detailsModel->rowCount(), 2);
     }
 
-    void treePaneShowsNamesOnlyWithSharedSizeDescendingSort()
+    void treePaneShowsNamesOnlyWithFixedSizeDescendingSort()
     {
         FileSystemModel model{};
         ScannerService scanner{};
@@ -255,7 +255,7 @@ private slots:
                  QStringLiteral("D"));
     }
 
-    void sortHeaderSyncsAcrossPanes()
+    void treeSortStaysFixedWhileDetailsSortsFreely()
     {
         FileSystemModel model{};
         ScannerService scanner{};
@@ -272,13 +272,18 @@ private slots:
         auto* detailsProxy = qobject_cast<QSortFilterProxyModel*>(details->model());
         QVERIFY(detailsProxy != nullptr);
 
-        // Either header moves the shared descriptor onto both proxies.
+        // Corrected requirement: the tree header is not user-sortable.
+        QVERIFY(!tree->header()->sectionsClickable());
+        // Even a programmatic deviation is forced back to Size-descending.
         tree->sortByColumn(FileSystemModel::ColName, Qt::AscendingOrder);
-        QCOMPARE(detailsProxy->sortColumn(), FileSystemModel::ColName);
-        QCOMPARE(details->horizontalHeader()->sortIndicatorSection(), FileSystemModel::ColName);
+        QCOMPARE(treeProxy->sortColumn(), FileSystemModel::ColSize);
+        QCOMPARE(tree->header()->sortIndicatorSection(), FileSystemModel::ColSize);
+        QCOMPARE(tree->header()->sortIndicatorOrder(), Qt::DescendingOrder);
+        // The details pane sorts independently with the same default.
+        QCOMPARE(detailsProxy->sortColumn(), FileSystemModel::ColSize);
         details->sortByColumn(FileSystemModel::ColAllocated, Qt::DescendingOrder);
-        QCOMPARE(treeProxy->sortColumn(), FileSystemModel::ColAllocated);
-        QCOMPARE(tree->header()->sortIndicatorSection(), FileSystemModel::ColAllocated);
+        QCOMPARE(detailsProxy->sortColumn(), FileSystemModel::ColAllocated);
+        QCOMPARE(treeProxy->sortColumn(), FileSystemModel::ColSize);
     }
 
     void collectsSkipsIntoEndOfScanSummary()

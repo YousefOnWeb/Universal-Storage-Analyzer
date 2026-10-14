@@ -60,10 +60,6 @@ private:
     void selectTreeNode(quint32 nodeId);
     void applyOptionsToEngine();
     void applyStartupTarget();
-    // Mirrors a header sort change onto the other view (spec 005b: one
-    // shared descriptor for tree + details). Callers pass the header
-    // that changed; signals are blocked while the mirror applies.
-    void applySharedSort(QHeaderView* changed, int column, Qt::SortOrder order);
     static QString formatBytes(quint64 bytes, const QString& unit);
     QTableView* makeStatsTab(const QString& title, StatsTableModel*& model,
                              QSortFilterProxyModel*& proxy);

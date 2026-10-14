@@ -217,11 +217,15 @@
   start); either header click mirrors onto the other view
   (signal-blocked, no ping-pong); comparators read the numeric sort
   role with stable ties. Live-stream freeze behavior unchanged.
-- Tests: `treePaneShowsNamesOnlyWithSharedSizeDescendingSort`
+- Tests: `treePaneShowsNamesOnlyWithFixedSizeDescendingSort`
   (hidden columns, both indicators, largest-first) +
-  `sortHeaderSyncsAcrossPanes` (both directions). 14/14 green, lint
-  clean. One compile catch: `sortByColumn` is view-level,
-  `sort` is proxy-level.
+  `treeSortStaysFixedWhileDetailsSortsFreely` (tree pinned,
+  details independent). 14/14 green, lint clean. One compile
+  catch: `sortByColumn` is view-level, `sort` is proxy-level.
+- Correction applied after review: tree sort is FIXED Size-descending
+  (non-clickable header + enforcer + one full finish sort with dynamic
+  ordering for the drain); details sorts freely with the same default.
+  The shared-descriptor design was removed from spec 005 §1/§4e.
 
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
