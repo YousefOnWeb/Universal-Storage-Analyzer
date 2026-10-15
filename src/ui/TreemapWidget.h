@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../models/FileSystemModel.h"
+#include "../models/SizeFormat.h"
 
 // Squarified treemap of the selected subtree's children: each tile's area
 // is proportional to logical bytes, so the pane always reconciles with
@@ -28,11 +29,14 @@ public:
 
     quint32 rootId() const { return rootId_; }
     std::size_t tileCount() const { return tiles_.size(); } // test hook
+    QString sizeUnit() const { return sizeUnit_; } // test hook
 
 public slots:
     void setRootId(quint32 nodeId);
     void refreshSoon();
     void selectTile(quint32 nodeId);
+    // Spec 006b: unit for hover tooltips (default Auto).
+    void setSizeUnit(const QString& unit);
 
 signals:
     void tileClicked(quint32 nodeId);
@@ -62,6 +66,7 @@ private:
 
     FileSystemModel* model_{nullptr};
     quint32 rootId_{0};
+    QString sizeUnit_{QStringLiteral("Auto")};
     std::vector<Tile> tiles_{};
     std::uint64_t total_{0};
     QPixmap cache_{};

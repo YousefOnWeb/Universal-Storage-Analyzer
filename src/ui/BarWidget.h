@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../models/FileSystemModel.h"
+#include "../models/SizeFormat.h"
 
 // Horizontal bar chart of the selected folder's largest children: quick
 // capacity comparison with exact values. Custom-painted (no QtCharts
@@ -22,11 +23,14 @@ public:
 
     quint32 rootId() const { return rootId_; }
     int barCount() const { return static_cast<int>(bars_.size()); } // test hook
+    QString sizeUnit() const { return sizeUnit_; } // test hook
 
 public slots:
     void setRootId(quint32 nodeId);
     void refreshSoon();
     void selectRow(int row);
+    // Spec 006b: unit for value labels and tooltips (default Auto).
+    void setSizeUnit(const QString& unit);
 
 signals:
     void barClicked(quint32 nodeId);
@@ -59,6 +63,7 @@ private:
 
     FileSystemModel* model_{nullptr};
     quint32 rootId_{0};
+    QString sizeUnit_{QStringLiteral("Auto")};
     std::vector<Bar> bars_{};
     std::uint64_t max_{0};
     int hover_{-1};

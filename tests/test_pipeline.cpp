@@ -64,13 +64,15 @@ private slots:
         for (int r{0}; r < model.rowCount(rootIdx); ++r) {
             const QModelIndex nameIdx = model.index(r, FileSystemModel::ColName, rootIdx);
             if (model.data(nameIdx).toString() == QStringLiteral("sub")) {
-                subBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx))
+                subBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx),
+                                      FileSystemModel::Roles::SortRole)
                                .toULongLong();
                 subRows = model.rowCount(model.index(r, 0, rootIdx));
             }
             if (model.nodeIdForIndex(model.index(r, 0, rootIdx))
                 == FileSystemModel::kRootFilesGroupId) {
-                groupBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx))
+                groupBytes = model.data(model.index(r, FileSystemModel::ColSize, rootIdx),
+                                        FileSystemModel::Roles::SortRole)
                                  .toULongLong();
             }
         }

@@ -1,4 +1,5 @@
 #include "FileSystemModel.h"
+#include "SizeFormat.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -115,9 +116,11 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         case ColName:
             return node->name;
         case ColSize:
-            return static_cast<quint64>(node->logicalSize);
+            // Spec 006b: display strings honor the unit selector; the
+            // raw byte count stays in SortRole and one tooltip away.
+            return usa::models::formatSizeBytes(node->logicalSize, sizeUnit_);
         case ColAllocated:
-            return static_cast<quint64>(node->allocatedSize);
+            return usa::models::formatSizeBytes(node->allocatedSize, sizeUnit_);
         case ColFiles:
             // Spec 006a: a file row IS one file (never an empty cell —
             // empty reads as "uncomputed", zero is a value).
@@ -166,6 +169,18 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         }
         case ColModified:
             return static_cast<qint64>(node->lastModifiedTs);
+        default:
+            return {};
+        }
+    }
+    if (role == Qt::ToolTipRole) {
+        // Spec 006b: exact byte counts stay one hover away everywhere
+        // sizes render; other columns keep default tooltip behavior.
+        switch (index.column()) {
+        case ColSize:
+            return usa::models::exactSizeBytes(node->logicalSize);
+        case ColAllocated:
+            return usa::models::exactSizeBytes(node->allocatedSize);
         default:
             return {};
         }
@@ -251,6 +266,18 @@ std::uint64_t FileSystemModel::lastModifiedTs(quint32 nodeId) const
 {
     const auto it = owned_.find(nodeId);
     return it != owned_.end() ? it->second->lastModifiedTs : 0;
+}
+
+void FileSystemModel::setSizeUnit(const QString& unit)
+{
+    if (unit == sizeUnit_) {
+        return;
+    }
+    sizeUnit_ = unit;
+    // Display strings changed everywhere; structure, ids, and sort keys
+    // did not. A layout change re-renders visible rows while keeping
+    // expansion, selection, and scroll position via stable indexes.
+    emit layoutChanged();
 }
 
 void FileSystemModel::clear()

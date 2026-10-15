@@ -275,7 +275,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     const QStorageInfo home{QDir::homePath()};
     if (home.isValid()) {
         freeSpaceLabel_->setText(
-            QStringLiteral("Free: %1").arg(formatBytes(static_cast<quint64>(home.bytesAvailable()),
+            QStringLiteral("Free: %1").arg(usa::models::formatSizeBytes(static_cast<quint64>(home.bytesAvailable()),
                                                        QStringLiteral("Auto"))));
     }
 
@@ -283,6 +283,13 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     applyStartupTarget();
     pie_->setTargetPath(targetEdit_->text());
     applyOptionsToEngine(); // push saved options before the first scan
+    // Spec 006b: one selector drives every rendered size (model
+    // strings, charts, panes, footer). Sync renderers to the restored
+    // unit explicitly — setCurrentText only signals on real changes —
+    // then follow user changes the same way.
+    connect(unitsCombo_, &QComboBox::currentTextChanged, this,
+            [this](const QString& unit) { applyUnits(unit); });
+    applyUnits(unitsCombo_->currentText());
     onTreeSelectionChanged();
 }
 
@@ -403,7 +410,11 @@ void MainWindow::onScanFinished(const QString& taskId, quint64 files, quint64 di
     countsLabel_->setText(QStringLiteral("Files: %1  Folders: %2  Total: %3")
                               .arg(files)
                               .arg(dirs)
-                              .arg(formatBytes(bytes, unitsCombo_->currentText())));
+                              .arg(usa::models::formatSizeBytes(bytes, unitsCombo_->currentText())));
+    lastFiles_ = files;
+    lastDirs_ = dirs;
+    lastBytes_ = bytes;
+    hasResult_ = true;
     // Corrected requirement: the tree is ALWAYS Size-descending. Live
     // inserts stream frozen (per-insert re-sorts would stall the loop),
     // so the finish applies one full sort plus dynamic ordering for the
@@ -545,11 +556,47 @@ void MainWindow::refreshAgePane()
     for (std::size_t i{0}; i < files.size(); ++i) {
         StatsRow r{};
         r.text = {ageBucketLabel(i, edges), QLocale{}.toString(files[i]),
-                  formatBytes(bytes[i], unitsCombo_->currentText())};
+                  usa::models::formatSizeBytes(bytes[i], unitsCombo_->currentText())};
         r.keys = {ageBucketLabel(i, edges), files[i], bytes[i]};
         rows.push_back(std::move(r));
     }
     ageModel_->setRows(std::move(rows));
+}
+
+void MainWindow::refreshFooter()
+{
+    // Spec 006b: footer honors the unit selector like every other
+    // rendered size. Totals need a completed scan; free space is a
+    // live query and refreshes unconditionally.
+    if (hasResult_) {
+        countsLabel_->setText(QStringLiteral("Files: %1  Folders: %2  Total: %3")
+                                  .arg(lastFiles_)
+                                  .arg(lastDirs_)
+                                  .arg(usa::models::formatSizeBytes(lastBytes_,
+                                                                    unitsCombo_->currentText())));
+    }
+    const QStorageInfo home{QDir::homePath()};
+    if (home.isValid()) {
+        freeSpaceLabel_->setText(QStringLiteral("Free: %1").arg(
+            usa::models::formatSizeBytes(static_cast<quint64>(home.bytesAvailable()),
+                                         unitsCombo_->currentText())));
+    }
+}
+
+void MainWindow::applyUnits(const QString& unit)
+{
+    // Spec 006b: one selector drives model strings, charts, panes,
+    // age buckets, and the footer. Model + charts re-render from
+    // stored raw values; panes rebuild from cached snapshots.
+    model_->setSizeUnit(unit);
+    bar_->setSizeUnit(unit);
+    pie_->setSizeUnit(unit);
+    treemap_->setSizeUnit(unit);
+    if (hasAnalytics_) {
+        projectAnalytics(lastAnalytics_);
+    }
+    refreshAgePane();
+    refreshFooter();
 }
 
 QTableView* MainWindow::makeStatsTab(const QString& title, StatsTableModel*& model,
@@ -578,13 +625,20 @@ QString MainWindow::shareText(double pct) const
 
 void MainWindow::onAnalyticsUpdated(const QString&, const AnalyticsData& data)
 {
+    lastAnalytics_ = data;
+    hasAnalytics_ = true;
+    projectAnalytics(lastAnalytics_);
+}
+
+void MainWindow::projectAnalytics(const AnalyticsData& data)
+{
     const QString units = unitsCombo_->currentText();
     {
         QVector<StatsRow> rows{};
         rows.reserve(data.extensions.size());
         for (const auto& row : data.extensions) {
             StatsRow r{};
-            r.text = {row.extension, formatBytes(row.bytes, units), shareText(row.sharePct),
+            r.text = {row.extension, usa::models::formatSizeBytes(row.bytes, units), shareText(row.sharePct),
                       QLocale{}.toString(row.files)};
             r.keys = {row.extension, row.bytes,
                       static_cast<quint64>(row.sharePct * 10.0),
@@ -598,7 +652,7 @@ void MainWindow::onAnalyticsUpdated(const QString&, const AnalyticsData& data)
         rows.reserve(data.top.size());
         for (const auto& row : data.top) {
             StatsRow r{};
-            r.text = {row.name, formatBytes(row.bytes, units), row.path};
+            r.text = {row.name, usa::models::formatSizeBytes(row.bytes, units), row.path};
             r.keys = {row.name, row.bytes, row.path};
             r.nodeId = row.nodeId;
             rows.push_back(std::move(r));
@@ -610,7 +664,7 @@ void MainWindow::onAnalyticsUpdated(const QString&, const AnalyticsData& data)
         rows.reserve(data.owners.size());
         for (const auto& row : data.owners) {
             StatsRow r{};
-            r.text = {row.owner, formatBytes(row.bytes, units), shareText(row.sharePct),
+            r.text = {row.owner, usa::models::formatSizeBytes(row.bytes, units), shareText(row.sharePct),
                       QLocale{}.toString(row.files)};
             r.keys = {row.owner, row.bytes,
                       static_cast<quint64>(row.sharePct * 10.0),
@@ -625,7 +679,7 @@ void MainWindow::onAnalyticsUpdated(const QString&, const AnalyticsData& data)
         for (const auto& row : data.age) {
             StatsRow r{};
             r.text = {row.label, QLocale{}.toString(row.files),
-                      formatBytes(row.bytes, units)};
+                      usa::models::formatSizeBytes(row.bytes, units)};
             r.keys = {row.label, row.files, row.bytes};
             rows.push_back(std::move(r));
         }
@@ -692,28 +746,4 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     saveWindowState();
     QMainWindow::closeEvent(event);
-}
-
-QString MainWindow::formatBytes(quint64 bytes, const QString& unit)
-{
-    double v{static_cast<double>(bytes)};
-    QString suffix{unit};
-    if (unit == QStringLiteral("Auto")) {
-        const char* units[] = {"B", "KB", "MB", "GB", "TB"};
-        int idx{0};
-        while (v >= 1024.0 && idx < 4) {
-            v /= 1024.0;
-            ++idx;
-        }
-        suffix = QString::fromUtf8(units[idx]);
-    } else {
-        if (unit == QStringLiteral("KB")) {
-            v /= 1024.0;
-        } else if (unit == QStringLiteral("MB")) {
-            v /= 1024.0 * 1024.0;
-        } else if (unit == QStringLiteral("GB")) {
-            v /= 1024.0 * 1024.0 * 1024.0;
-        }
-    }
-    return QStringLiteral("%1 %2").arg(v, 0, 'f', 2).arg(suffix);
 }

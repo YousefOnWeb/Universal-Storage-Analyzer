@@ -8,6 +8,7 @@
 #include "BarWidget.h"
 #include "PieWidget.h"
 #include "../models/StatsTableModel.h"
+#include "../models/SizeFormat.h"
 #include "../models/TreeFilterProxy.h"
 #include "TreemapWidget.h"
 
@@ -59,7 +60,12 @@ private:
     void selectTreeNode(quint32 nodeId);
     void applyOptionsToEngine();
     void applyStartupTarget();
-    static QString formatBytes(quint64 bytes, const QString& unit);
+    // Re-projects cached analytics + footer with the current units.
+    void applyUnits(const QString& unit);
+    // Builds the four analytics panes from a snapshot (spec 006b).
+    void projectAnalytics(const AnalyticsData& data);
+    // Rebuilds the footer totals + free-space lines (spec 006b).
+    void refreshFooter();
     QTableView* makeStatsTab(const QString& title, StatsTableModel*& model,
                              QSortFilterProxyModel*& proxy);
     QString shareText(double pct) const;
@@ -100,6 +106,14 @@ private:
     QLabel* countsLabel_{nullptr};
     QLabel* freeSpaceLabel_{nullptr};
     QProgressBar* progress_{nullptr};
+    // Last completed scan, for unit-change footer refreshes.
+    quint64 lastFiles_{0};
+    quint64 lastDirs_{0};
+    quint64 lastBytes_{0};
+    bool hasResult_{false};
+    // Last analytics snapshot, for unit-change pane rebuilds.
+    AnalyticsData lastAnalytics_{};
+    bool hasAnalytics_{false};
 
     QString activeTaskId_{};
     bool scanning_{false};

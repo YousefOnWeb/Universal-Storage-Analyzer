@@ -300,6 +300,26 @@
   reverted before commit, and a destructive progress.md header swap
   restored immediately (append-only discipline re-confirmed).
 
+## Current (2026-10-15) — spec 006 slice 006b (unit formatting)
+
+- New `models/SizeFormat.h` (verbatim-moved unit math): `Auto`
+  buckets B→TB by magnitude; DisplayRole strings honor the selector
+  everywhere (tree, details, bars, pie, treemap tooltip, stats panes,
+  age buckets, footer); SortRole stays raw; exact bytes one tooltip
+  away. `MainWindow::formatBytes` removed in favor of the shared
+  helper (identical output — the age-pane `200.00 B` assert still
+  passes unmodified).
+- One selector drives all: combo change re-renders model strings
+  (layout change, stable indexes), pushes units into the three
+  charts, rebuilds stats panes from the cached snapshot, re-buckets
+  age rows, and refreshes footer + free space. Restored unit syncs
+  renderers at launch.
+- Tests: `formatsSizesPerUnitWithRawSortKeys` (Auto/MB/KB strings,
+  raw keys, exact tooltips, no-op switch) +
+  `unitSelectorFormatsRenderedSizes` (combo→model/proxy/charts end
+  to end, ambient-proof two-step set); raw-number asserts moved to
+  SortRole. 14/14 green, lint clean.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

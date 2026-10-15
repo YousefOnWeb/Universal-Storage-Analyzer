@@ -64,6 +64,15 @@ void PieWidget::refreshSoon()
     }
 }
 
+void PieWidget::setSizeUnit(const QString& unit)
+{
+    if (unit == sizeUnit_) {
+        return;
+    }
+    sizeUnit_ = unit;
+    update(); // legend/tooltips re-render from stored raw bytes
+}
+
 void PieWidget::selectSlice(int i)
 {
     if (i >= 0 && i < static_cast<int>(slices_.size())
@@ -210,7 +219,8 @@ void PieWidget::paintEvent(QPaintEvent* event)
         p.fillRect(lx, legendY, 12, 12, s.color);
         p.setPen(palette().color(QPalette::WindowText));
         const QString text = QStringLiteral("%1 — %2 (%3%)")
-                                 .arg(s.label, usa::ui::chartBytes(s.bytes),
+                                 .arg(s.label,
+                                      usa::models::formatSizeBytes(s.bytes, sizeUnit_),
                                       QString::number(pct, 'f', 1));
         p.drawText(lx + 18, legendY, width() - lx - 24, 16,
                    static_cast<int>(Qt::AlignLeft | Qt::AlignVCenter),
@@ -236,7 +246,8 @@ void PieWidget::mouseMoveEvent(QMouseEvent* event)
         QToolTip::showText(
             mapToGlobal(event->position().toPoint()),
             QStringLiteral("%1\n%2 (%3%)")
-                .arg(s.label, usa::ui::chartBytes(s.bytes), QString::number(pct, 'f', 1)),
+                .arg(s.label, usa::models::formatSizeBytes(s.bytes, sizeUnit_),
+                     QString::number(pct, 'f', 1)),
             this);
     } else {
         QToolTip::hideText();

@@ -66,7 +66,7 @@ private slots:
             model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent());
         const QModelIndex dFiles =
             model.index(dIdx.row(), FileSystemModel::ColFiles, dIdx.parent());
-        QCOMPARE(model.data(dSize).toULongLong(), static_cast<qulonglong>(500));
+        QCOMPARE(model.data(dSize, FileSystemModel::Roles::SortRole).toULongLong(), static_cast<qulonglong>(500));
         QCOMPARE(model.data(dFiles).toUInt(), static_cast<quint32>(1));
 
         // Root keeps exact totals — 600, not 1200.
@@ -143,8 +143,9 @@ private slots:
             m.logicalSize = static_cast<quint64>(100 + i);
             model.onBranchMetricsUpdated(QStringLiteral("t"), m);
         }
-        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()))
-                     .toULongLong(),
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()),
+                            FileSystemModel::Roles::SortRole)
+                      .toULongLong(),
                  static_cast<qulonglong>(149));
         QVERIFY(dataSpy.wait(500));
         QCOMPARE(dataSpy.count(), 1);
@@ -173,8 +174,9 @@ private slots:
 
         const QModelIndex dIdx = model.indexForNodeId(7);
         QVERIFY(dIdx.isValid());
-        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()))
-                     .toULongLong(),
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColSize, dIdx.parent()),
+                            FileSystemModel::Roles::SortRole)
+                      .toULongLong(),
                  static_cast<qulonglong>(900));
         QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColFiles, dIdx.parent()))
                      .toUInt(),
@@ -401,9 +403,11 @@ private slots:
         QCOMPARE(model.parent(groupIdx), rootIdx);
         QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColName, rootIdx)).toString(),
                  QStringLiteral("[2 Files]"));
-        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx)).toULongLong(),
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx),
+                            FileSystemModel::Roles::SortRole).toULongLong(),
                  static_cast<qulonglong>(300));
-        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColAllocated, rootIdx)).toULongLong(),
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColAllocated, rootIdx),
+                            FileSystemModel::Roles::SortRole).toULongLong(),
                  static_cast<qulonglong>(12288));
         QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColFiles, rootIdx)).toUInt(),
                  static_cast<quint32>(2));
@@ -427,7 +431,8 @@ private slots:
         QCOMPARE(model.rowCount(rootIdx), 2); // still D + group
         QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColName, rootIdx)).toString(),
                  QStringLiteral("[3 Files]"));
-        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx)).toULongLong(),
+        QCOMPARE(model.data(model.index(groupIdx.row(), FileSystemModel::ColSize, rootIdx),
+                            FileSystemModel::Roles::SortRole).toULongLong(),
                  static_cast<qulonglong>(350));
         QCOMPARE(model.rowCount(groupIdx), 3);
         QCOMPARE(model.totalLogicalBytes(), static_cast<quint64>(400));
@@ -448,6 +453,58 @@ private slots:
         const QModelIndex rootIdx = model.indexForNodeId(0);
         QCOMPARE(model.rowCount(rootIdx), 1); // D only
         QVERIFY(!model.indexForNodeId(FileSystemModel::kRootFilesGroupId).isValid());
+    }
+
+    void formatsSizesPerUnitWithRawSortKeys()
+    {
+        // Spec 006b: display strings honor the unit selector (Auto
+        // buckets by magnitude); SortRole stays raw; tooltips carry
+        // exact bytes; switching re-renders via layoutChanged.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord a{};
+        a.id = 2;
+        a.parentId = 1;
+        a.name = QStringLiteral("a");
+        a.logicalSize = 512;
+        a.allocatedSize = 4096;
+        FileRecord b{};
+        b.id = 3;
+        b.parentId = 1;
+        b.name = QStringLiteral("b");
+        b.logicalSize = 5368709120ULL; // 5 GiB
+        b.allocatedSize = 5368709120ULL;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, a, b});
+
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        const QModelIndex aSize = model.index(0, FileSystemModel::ColSize, dIdx);
+        const QModelIndex bSize = model.index(1, FileSystemModel::ColSize, dIdx);
+        // Default unit is Auto: bytes stay bytes, gibibytes scale up.
+        QCOMPARE(model.data(aSize).toString(), QStringLiteral("512.00 B"));
+        QCOMPARE(model.data(bSize).toString(), QStringLiteral("5.00 GB"));
+        QCOMPARE(model.data(aSize, FileSystemModel::Roles::SortRole).toULongLong(),
+                 static_cast<qulonglong>(512));
+        QCOMPARE(model.data(aSize, Qt::ToolTipRole).toString(),
+                 QStringLiteral("512 bytes"));
+        QCOMPARE(model.data(bSize, Qt::ToolTipRole).toString(),
+                 QStringLiteral("5368709120 bytes"));
+
+        QSignalSpy layoutSpy{&model, &FileSystemModel::layoutChanged};
+        model.setSizeUnit(QStringLiteral("MB"));
+        QCOMPARE(layoutSpy.count(), 1);
+        QCOMPARE(model.data(aSize).toString(), QStringLiteral("0.00 MB"));
+        QCOMPARE(model.data(bSize).toString(), QStringLiteral("5120.00 MB"));
+        QCOMPARE(model.data(aSize, FileSystemModel::Roles::SortRole).toULongLong(),
+                 static_cast<qulonglong>(512));
+        model.setSizeUnit(QStringLiteral("KB"));
+        QCOMPARE(model.data(bSize).toString(), QStringLiteral("5242880.00 KB"));
+        model.setSizeUnit(QStringLiteral("KB")); // no-op: no second signal
+        QCOMPARE(layoutSpy.count(), 2);
     }
 
     void shareOfParentComputesExactly()

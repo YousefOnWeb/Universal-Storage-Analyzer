@@ -48,6 +48,10 @@ public:
     quint32 nodeIdForIndex(const QModelIndex& index) const;
     QModelIndex indexForNodeId(quint32 nodeId) const;
     quint64 totalLogicalBytes() const { return totalLogical_; }
+    // Spec 006b: unit for size DisplayRole strings ("Auto", "KB",
+    // "MB", "GB"). SortRole keys and stored values never change —
+    // switching re-renders visible strings only.
+    void setSizeUnit(const QString& unit);
     // Accumulated GUI-thread mutation wall time (inserts + summary
     // applies), for scan-speed diagnosis. Reset per scan.
     quint64 insertUsec() const { return insertUs_; }
@@ -147,6 +151,8 @@ private:
     Node* root_{nullptr};
     quint64 totalLogical_{0};
     std::uint64_t insertUs_{0};
+    // Display unit for size strings; persisted separately (main/units).
+    QString sizeUnit_{QStringLiteral("Auto")};
 
 private slots:
     void flushDirtySummaries();

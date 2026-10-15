@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../models/FileSystemModel.h"
+#include "../models/SizeFormat.h"
 
 // Pie chart of storage distribution for the scan target's volume: the
 // selected folder's largest children, an "Other files" remainder, and
@@ -26,6 +27,7 @@ public:
 
     quint32 rootId() const { return rootId_; }
     int sliceCount() const { return static_cast<int>(slices_.size()); } // test hook
+    QString sizeUnit() const { return sizeUnit_; } // test hook
     quint32 sliceNodeId(int i) const; // kNoId for Other/Free slices
 
 public slots:
@@ -33,6 +35,8 @@ public slots:
     void setTargetPath(const QString& path);
     void refreshSoon();
     void selectSlice(int i);
+    // Spec 006b: unit for legend values and tooltips (default Auto).
+    void setSizeUnit(const QString& unit);
 
 signals:
     void pieClicked(quint32 nodeId);
@@ -63,6 +67,7 @@ private:
 
     FileSystemModel* model_{nullptr};
     quint32 rootId_{0};
+    QString sizeUnit_{QStringLiteral("Auto")};
     QString targetPath_{};
     std::vector<Slice> slices_{};
     std::uint64_t total_{0};

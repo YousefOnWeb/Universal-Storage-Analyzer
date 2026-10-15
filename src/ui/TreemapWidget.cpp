@@ -52,6 +52,15 @@ void TreemapWidget::refreshSoon()
     }
 }
 
+void TreemapWidget::setSizeUnit(const QString& unit)
+{
+    if (unit == sizeUnit_) {
+        return;
+    }
+    sizeUnit_ = unit;
+    update(); // tooltips re-render from stored raw bytes
+}
+
 void TreemapWidget::selectTile(quint32 nodeId)
 {
     for (const auto& t : tiles_) {
@@ -226,7 +235,7 @@ void TreemapWidget::mouseMoveEvent(QMouseEvent* event)
         QToolTip::showText(
             mapToGlobal(event->position().toPoint()),
             QStringLiteral("%1\n%2 (%3%)")
-                .arg(nodePath(t.id), usa::ui::chartBytes(t.bytes),
+                .arg(nodePath(t.id), usa::models::formatSizeBytes(t.bytes, sizeUnit_),
                      QString::number(share, 'f', 1)),
             this);
     } else {

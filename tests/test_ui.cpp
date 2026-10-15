@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QApplication>
+#include <QComboBox>
 #include <QDateTime>
 #include <QLabel>
 #include <QMap>
@@ -841,6 +842,82 @@ private slots:
                      FileSystemModel::ColModified);
             QCOMPARE(details->horizontalHeader()->sortIndicatorOrder(), Qt::AscendingOrder);
         }
+    }
+
+    void unitSelectorFormatsRenderedSizes()
+    {
+        // Spec 006b: one selector drives model strings, charts, panes,
+        // and footer. Fixed units keep the test exact.
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 1;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 2097152; // 2 MiB
+        f1.allocatedSize = 2097152;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+
+        auto* combo = win.findChild<QComboBox*>();
+        QVERIFY(combo != nullptr);
+        QCOMPARE(combo->accessibleName(), QStringLiteral("Size units"));
+        // Two-step: the ambient profile may already hold the target
+        // text, and setCurrentText only signals on real changes.
+        combo->setCurrentText(QStringLiteral("KB"));
+        combo->setCurrentText(QStringLiteral("MB"));
+
+        // Model strings follow; raw keys and tooltips do not move.
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        const QModelIndex fIdx = model.indexForNodeId(2);
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColSize, dIdx)).toString(),
+                 QStringLiteral("2.00 MB"));
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColSize, dIdx),
+                            FileSystemModel::Roles::SortRole).toULongLong(),
+                 static_cast<qulonglong>(2097152));
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColSize, dIdx),
+                            Qt::ToolTipRole).toString(),
+                 QStringLiteral("2097152 bytes"));
+
+        // Charts receive the same unit.
+        auto* bars = win.findChild<BarWidget*>();
+        QVERIFY(bars != nullptr);
+        QCOMPARE(bars->sizeUnit(), QStringLiteral("MB"));
+        auto* pie = win.findChild<PieWidget*>();
+        QVERIFY(pie != nullptr);
+        QCOMPARE(pie->sizeUnit(), QStringLiteral("MB"));
+        auto* treemap = win.findChild<TreemapWidget*>();
+        QVERIFY(treemap != nullptr);
+        QCOMPARE(treemap->sizeUnit(), QStringLiteral("MB"));
+
+        // Details proxy surfaces the formatted strings.
+        auto* details = win.findChild<QTableView*>(QStringLiteral("Details"));
+        QVERIFY(details != nullptr);
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        const QModelIndex treeRoot = tree->model()->index(0, FileSystemModel::ColName);
+        QModelIndex dProxyIdx{};
+        for (int r = 0; r < tree->model()->rowCount(treeRoot); ++r) {
+            const QModelIndex idx =
+                tree->model()->index(r, FileSystemModel::ColName, treeRoot);
+            if (tree->model()->data(idx).toString() == QStringLiteral("D")) {
+                dProxyIdx = idx;
+            }
+        }
+        QVERIFY(dProxyIdx.isValid());
+        tree->setCurrentIndex(dProxyIdx); // select D so details list f1
+        QCOMPARE(details->model()->rowCount(), 1);
+        QCOMPARE(details->model()->data(details->model()->index(0, FileSystemModel::ColSize)).toString(),
+                 QStringLiteral("2.00 MB"));
     }
 };
 

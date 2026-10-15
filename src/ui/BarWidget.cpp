@@ -45,6 +45,15 @@ void BarWidget::refreshSoon()
     }
 }
 
+void BarWidget::setSizeUnit(const QString& unit)
+{
+    if (unit == sizeUnit_) {
+        return;
+    }
+    sizeUnit_ = unit;
+    update(); // labels/tooltips re-render from stored raw bytes
+}
+
 void BarWidget::selectRow(int row)
 {
     if (row >= 0 && row < static_cast<int>(bars_.size())) {
@@ -135,7 +144,7 @@ void BarWidget::paintEvent(QPaintEvent* event)
         p.setPen(palette().color(QPalette::WindowText));
         p.drawText(barX + barW + kPad, y, kValueW - kPad, kRowH - 6,
                    static_cast<int>(Qt::AlignLeft | Qt::AlignVCenter),
-                   usa::ui::chartBytes(b.bytes));
+                   usa::models::formatSizeBytes(b.bytes, sizeUnit_));
     }
     QWidget::paintEvent(event);
 }
@@ -150,7 +159,8 @@ void BarWidget::mouseMoveEvent(QMouseEvent* event)
     if (row >= 0) {
         const auto& b = bars_[static_cast<std::size_t>(row)];
         QToolTip::showText(mapToGlobal(event->position().toPoint()),
-                           QStringLiteral("%1\n%2").arg(b.name, usa::ui::chartBytes(b.bytes)),
+                           QStringLiteral("%1\n%2").arg(
+                               b.name, usa::models::formatSizeBytes(b.bytes, sizeUnit_)),
                            this);
     } else {
         QToolTip::hideText();
