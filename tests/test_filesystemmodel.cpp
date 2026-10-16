@@ -562,6 +562,53 @@ private slots:
                  QStringLiteral("% of Parent"));
     }
 
+    void ownerColumnResolvesWithUnknownHonesty()
+    {
+        // Spec 006c: owner ids flow record -> node -> resolved display;
+        // empty ids render the honest "(unknown)" (with an explanatory
+        // tooltip); unresolvable ids pass through verbatim on every
+        // platform (mirrors the resolver unit-test precedent).
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 0; // root-level: aggregates into the group
+        f.name = QStringLiteral("f");
+        f.logicalSize = 50;
+        f.ownerId = "S-1-5-9999-8888-7777"; // bogus everywhere: verbatim
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f});
+
+        const QModelIndex rootIdx = model.indexForNodeId(0);
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        const QModelIndex fIdx = model.indexForNodeId(2);
+        const QModelIndex groupIdx = model.indexForNodeId(FileSystemModel::kRootFilesGroupId);
+        QVERIFY(groupIdx.isValid());
+        QCOMPARE(model.parent(fIdx), groupIdx); // member, not a tree row
+
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColOwner, rootIdx)).toString(),
+                 QStringLiteral("(unknown)"));
+        QCOMPARE(model.data(model.index(dIdx.row(), FileSystemModel::ColOwner, rootIdx),
+                            FileSystemModel::Roles::SortRole).toString(),
+                 QStringLiteral("(unknown)"));
+        QVERIFY(!model.data(model.index(dIdx.row(), FileSystemModel::ColOwner, rootIdx),
+                            Qt::ToolTipRole).toString().isEmpty());
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColOwner, groupIdx)).toString(),
+                 QStringLiteral("S-1-5-9999-8888-7777"));
+        QCOMPARE(model.data(model.index(0, FileSystemModel::ColOwner, QModelIndex{})).toString(),
+                 QStringLiteral("(unknown)")); // root has no owner either
+        QCOMPARE(model.headerData(FileSystemModel::ColOwner, Qt::Horizontal).toString(),
+                 QStringLiteral("Owner"));
+        QCOMPARE(model.headerData(FileSystemModel::ColAccessed, Qt::Horizontal).toString(),
+                 QStringLiteral("Last Accessed"));
+        // Accessed stays empty until 006d fills it from backends.
+        QVERIFY(!model.data(model.index(fIdx.row(), FileSystemModel::ColAccessed, groupIdx)).isValid());
+    }
+
     void treeFilterSearchesRecursively()
     {
         FileSystemModel model{};

@@ -320,6 +320,22 @@
   to end, ambient-proof two-step set); raw-number asserts moved to
   SortRole. 14/14 green, lint clean.
 
+## Current (2026-10-16) — spec 006 slice 006c (owner pipeline)
+
+- Owner ids flow record → node → lazily resolved display via a
+  model-held `OwnerResolver` (one OS lookup per distinct id, cached
+  for the process lifetime); empty ids render the honest
+  `(unknown)` with an explanatory tooltip, unresolvable ids pass
+  through verbatim on every platform. New `Owner` column (+ reserved
+  empty `Last Accessed` column at its reference position, filled in
+  006d — no renumber churn later). Tree hides both automatically;
+  group/root rows show `(unknown)` uniformly.
+- Tests: `ownerColumnResolvesWithUnknownHonesty` (verbatim fallback,
+  tooltips, headers, group-member carry). 14/14 green, lint clean.
+  Two self-catches: a no-op edit reverted instantly, and a destructive
+  block-delete repaired on the spot (full-diff review before moving
+  on both times).
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

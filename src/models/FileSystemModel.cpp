@@ -141,6 +141,14 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
             return QDateTime::fromSecsSinceEpoch(
                        static_cast<qint64>(node->lastModifiedTs))
                 .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+        case ColAccessed:
+            // Spec 006d fills this from backend access times; until
+            // then the column reserves its position and stays empty.
+            return {};
+        case ColOwner:
+            // Spec 006c: lazy cached resolution; empty ids render the
+            // honest "(unknown)" the Users pane already uses.
+            return ownerResolver_.displayName(node->ownerId);
         default:
             return {};
         }
@@ -169,6 +177,10 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         }
         case ColModified:
             return static_cast<qint64>(node->lastModifiedTs);
+        case ColAccessed:
+            return {};
+        case ColOwner:
+            return ownerResolver_.displayName(node->ownerId);
         default:
             return {};
         }
@@ -181,6 +193,12 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
             return usa::models::exactSizeBytes(node->logicalSize);
         case ColAllocated:
             return usa::models::exactSizeBytes(node->allocatedSize);
+        case ColOwner:
+            if (node->ownerId.empty()) {
+                return QStringLiteral("(unknown): the backend did not capture an "
+                                      "owner id for this item");
+            }
+            return {};
         default:
             return {};
         }
@@ -208,6 +226,10 @@ QVariant FileSystemModel::headerData(int section, Qt::Orientation orientation, i
         return QStringLiteral("% of Parent");
     case ColModified:
         return QStringLiteral("Last Modified");
+    case ColAccessed:
+        return QStringLiteral("Last Accessed");
+    case ColOwner:
+        return QStringLiteral("Owner");
     default:
         return {};
     }
@@ -436,6 +458,7 @@ void FileSystemModel::insertRowsUnder(Node* parentNode, const QVector<FileRecord
         node->allocatedSize = rec.allocatedSize;
         node->lastModifiedTs = rec.lastModifiedTs;
         node->isDirectory = rec.isDirectory;
+        node->ownerId = rec.ownerId;
         node->parent = parentNode;
 
         Node* raw = node.get();
@@ -528,6 +551,7 @@ void FileSystemModel::insertRootFileMembers(const QVector<FileRecord>& files)
         node->allocatedSize = rec.allocatedSize;
         node->lastModifiedTs = rec.lastModifiedTs;
         node->isDirectory = false;
+        node->ownerId = rec.ownerId;
         node->parent = group;
 
         Node* raw = node.get();

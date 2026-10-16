@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QVector>
 
+#include "../services/OwnerResolver.h"
 #include "../services/ScanTypes.h"
 
 #include <cstdint>
@@ -26,7 +27,11 @@ public:
         ColFolders = 4,
         ColSharePct = 5,
         ColModified = 6,
-        ColCount = 7,
+        // Spec 006c: access times arrive in 006d; the column already
+        // reserves its reference position (empty until then).
+        ColAccessed = 7,
+        ColOwner = 8,
+        ColCount = 9,
     };
 
     enum Roles : int {
@@ -100,6 +105,9 @@ private:
         bool isDirectory{false};
         Node* parent{nullptr};
         QVector<Node*> children{};
+        // Backend-opaque owner id (spec 006c); empty when uncaptured.
+        // Display names resolve lazily through the model's resolver.
+        std::string ownerId{};
     };
 
     Node* nodeFromIndex(const QModelIndex& index) const;
@@ -153,6 +161,10 @@ private:
     std::uint64_t insertUs_{0};
     // Display unit for size strings; persisted separately (main/units).
     QString sizeUnit_{QStringLiteral("Auto")};
+    // Owner-name cache (spec 006c): lazy, process-lifetime, one lookup
+    // per distinct id no matter how often cells repaint. Mutable: the
+    // cache fills behind a logically-const display read.
+    mutable OwnerResolver ownerResolver_;
 
 private slots:
     void flushDirtySummaries();

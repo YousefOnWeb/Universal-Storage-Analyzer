@@ -20,6 +20,9 @@ struct FileRecord {
     quint64 lastModifiedTs{0};
     bool isDirectory{false};
     bool isCompressed{false};
+    // Backend-opaque owner identity (spec 006c); empty when the backend
+    // cannot provide it. Display names resolve lazily in the model.
+    std::string ownerId{};
 };
 
 Q_DECLARE_METATYPE(FileRecord)

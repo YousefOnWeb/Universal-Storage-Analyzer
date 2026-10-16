@@ -126,6 +126,7 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
                 rec.allocatedSize = node.physicalSize;
                 rec.lastModifiedTs = node.lastWriteTs;
                 rec.isDirectory = node.isDirectory;
+                rec.ownerId = node.ownerId;
                 pending.push_back(std::move(rec));
             }
             if (pending.size() >= static_cast<std::size_t>(kBatchSize)) {
