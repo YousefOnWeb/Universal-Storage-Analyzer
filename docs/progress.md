@@ -320,6 +320,19 @@
   to end, ambient-proof two-step set); raw-number asserts moved to
   SortRole. 14/14 green, lint clean.
 
+## Current (2026-10-16) — zero quota-owner fix (operator-reported)
+
+- Operator: Owner column shows `0`. Root cause: `$STANDARD_INFORMATION`
+  OwnerId (+48) is the quota-owner number, not a SID — live records
+  read 0 for user and system files alike, and `to_string(0)` flowed
+  verbatim through the resolver fallback. Fix: zero stays uncaptured
+  (`hasOwner=false` → honest `(unknown)`); nonzero ids unchanged;
+  POSIX uid 0 (root) untouched — it is a real identity there.
+- Tests: `zeroQuotaOwnerStaysUncaptured` (+1001 nonzero case already
+  covered). 14/14 green, lint clean. Full SID resolution via
+  `$Secure` stays deferred: it needs a SecurityId→SDS→SID lookup per
+  distinct descriptor, a new slice if real names are wanted.
+
 ## Current (2026-10-16) — spec 006 slice 006c (owner pipeline)
 
 - Owner ids flow record → node → lazily resolved display via a

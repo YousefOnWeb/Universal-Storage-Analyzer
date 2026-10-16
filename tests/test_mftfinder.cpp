@@ -167,6 +167,19 @@ private slots:
                  usa::scanner::detail::filetimeToUnix(kTestFiletime));
     }
 
+    void zeroQuotaOwnerStaysUncaptured()
+    {
+        // Live volumes read owner id 0 for user and system files alike
+        // (quota-owner, not an identity): it must not surface as a "0"
+        // owner row. Nonzero ids still capture (see above: 1001).
+        auto buf = makeFileRecord();
+        putU32(buf, 120, 0); // $STANDARD_INFORMATION owner id
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QVERIFY(!rec.hasOwner);
+        QVERIFY(rec.name == L"test"); // record itself still parses
+    }
+
     void rejectsCorruptRecords()
     {
         auto torn = makeFileRecord();

@@ -158,9 +158,17 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
                     rec.isReparsePoint = true;
                 }
                 // MS-FSCC 2.1.7 $STANDARD_INFORMATION: owner id at +48.
+                // A zero quota-owner carries no identity (verified live:
+                // user and system files alike read 0 while their real
+                // owners differ) — leave it uncaptured so the UI shows
+                // the honest "(unknown)" instead of a meaningless "0".
+                // POSIX uid 0 (root) is real and untouched by this.
                 if (contentLen >= 52) {
-                    rec.ownerId = readU32(p + cstart + 48);
-                    rec.hasOwner = true;
+                    const std::uint32_t ownerId = readU32(p + cstart + 48);
+                    if (ownerId != 0) {
+                        rec.ownerId = ownerId;
+                        rec.hasOwner = true;
+                    }
                 }
             }
         } else if (type == 0x30 && !nonResident) { // $FILE_NAME
