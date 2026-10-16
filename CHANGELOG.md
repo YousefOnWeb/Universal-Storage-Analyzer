@@ -24,6 +24,21 @@ All notable user-facing changes are recorded here.
 - File owner display names with honest `(unknown)` coverage states.
 - Disk-busy throttling with status indicator; options dialog (age
   buckets, top-N size, startup target, throttle toggle).
+- Visible volume-root row (auto-selected on scan finish); root-level
+  files grouped into a synthetic `[N Files]` row with exact sums.
+- Tree pane shows names only with fixed Size-descending order;
+  details sort persists across launches (version-migrated).
+- Details columns: `% of Parent` (one decimal, em dash on zero
+  denominators), `Owner` (lazy cached resolution, `(unknown)` where
+  uncaptured), `Last Accessed` (empty where unknown); file rows read
+  Files `1` / Folders `0`; directory Last Modified reflects
+  subtree-max recency.
+- Human-readable sizes everywhere the unit selector reaches
+  (details, charts, treemap, footer, group rows); raw bytes stay the
+  sort keys and tooltips.
+- Selection summary strip (selected node) distinct from the footer
+  scan totals; unified `Chart` page with Bars/Pie modes and
+  drill-down; drive picker setting the scan target.
 
 ### Changed
 
@@ -51,6 +66,9 @@ All notable user-facing changes are recorded here.
   rejected with a non-fatal error instead of sharing engine state.
 - Details pane no longer follows freed nodes across scan resets.
 - CLI modes attach to the parent console when stdout has nowhere to go.
+- Zero logical sizes for locked system files repaired via live
+  re-stat plus parent-directory fallback; one directory row per
+  hardlink name; scan totals reconciled with volume usage.
 
 ## [0.1.0] — 2026-10-04
 

@@ -1,6 +1,7 @@
 # Progress
 
-## Current (2026-10-11) — branch `feature/m2-analytics` at `da8bf33`
+## Current (2026-10-16) — branch `feature/m2-analytics` at `9634b60`
+  (specs 004/005/006 accepted; pre-merge consolidation in progress)
 
 - Milestone 2 analytics (spec 002) implemented and verified on this
   branch (unreleased, unmerged): engine accumulators, treemap/bars/pie,
