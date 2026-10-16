@@ -45,6 +45,9 @@ struct EngineDirSummary {
     std::uint64_t physicalSize{0};
     std::uint32_t fileCount{0};
     std::uint32_t folderCount{0};
+    // Subtree-max last-write (spec 006e): the newest object mtime at or
+    // beneath the directory. Directories display this recency.
+    std::uint64_t maxMtime{0};
 };
 
 // One emitted file with logicalSize == 0. Zero can be legitimate

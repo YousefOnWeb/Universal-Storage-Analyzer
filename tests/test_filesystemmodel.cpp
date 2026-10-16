@@ -640,6 +640,40 @@ private slots:
                  static_cast<qlonglong>(1700086400));
     }
 
+    void directoryRecencyTakesSubtreeMax()
+    {
+        // Spec 006e: directory recency is max(object mtime, subtree-max
+        // from summaries); a stale summary never rewinds a newer value;
+        // files keep their own mtime (no summaries address them).
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        dir.lastModifiedTs = 1000; // stale directory object
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir});
+
+        const QModelIndex dIdx = model.indexForNodeId(1);
+        QVERIFY(dIdx.isValid());
+        const QModelIndex cell = model.index(dIdx.row(), FileSystemModel::ColModified, dIdx.parent());
+
+        BranchMetrics fresh{};
+        fresh.nodeId = 1;
+        fresh.maxMtime = 2000; // newer content beneath
+        model.onBranchMetricsUpdated(QStringLiteral("t"), fresh);
+        QCOMPARE(model.data(cell, FileSystemModel::Roles::SortRole).toLongLong(),
+                 static_cast<qlonglong>(2000));
+
+        BranchMetrics stale{};
+        stale.nodeId = 1;
+        stale.maxMtime = 500; // older report: must not rewind
+        model.onBranchMetricsUpdated(QStringLiteral("t"), stale);
+        QCOMPARE(model.data(cell, FileSystemModel::Roles::SortRole).toLongLong(),
+                 static_cast<qlonglong>(2000));
+    }
+
     void treeFilterSearchesRecursively()
     {
         FileSystemModel model{};

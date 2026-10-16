@@ -148,6 +148,7 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
         metrics.allocatedSize = summary.physicalSize;
         metrics.fileCount = summary.fileCount;
         metrics.folderCount = summary.folderCount;
+        metrics.maxMtime = summary.maxMtime;
         emit branchMetricsUpdated(taskId, metrics);
     };
     callbacks.onError = [&](const std::string& message, bool fatal) {
@@ -226,6 +227,7 @@ void LocalScannerWorker::startScanPath(const QString& taskId, const QString& tar
             m.allocatedSize = s.physicalSize;
             m.fileCount = s.fileCount;
             m.folderCount = s.folderCount;
+            m.maxMtime = s.maxMtime;
             out.push_back(std::move(m));
         }
         emit sweepUpdated(taskId, out);

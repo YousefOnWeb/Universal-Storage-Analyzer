@@ -443,6 +443,59 @@ private slots:
         const auto entries = engine.zeroLogicalEntries();
         QCOMPARE(entries.size(), static_cast<std::size_t>(1));
     }
+
+    void subtreeMaxMtimeReachesSummaries()
+    {
+        // Spec 006e: directory summaries carry descendant recency. The
+        // file is backdated an hour while the directory object stays
+        // fresh (setting directory times fails on this runtime, so the
+        // discrimination runs the other way): summaries must show the
+        // file's older time, not the object's newer one.
+        QTemporaryDir tmp{};
+        QVERIFY(tmp.isValid());
+        const std::filesystem::path root{tmp.path().toStdWString()};
+        const auto t0 = static_cast<std::uint64_t>(
+            std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+        std::filesystem::create_directory(root / "sub");
+        writeBytes(root / "sub" / "old.bin", 100);
+        {
+            std::error_code ec{};
+            const auto ft = std::filesystem::last_write_time(root / "sub" / "old.bin", ec);
+            QVERIFY(!ec);
+            std::filesystem::last_write_time(root / "sub" / "old.bin",
+                                             ft - std::chrono::hours(1), ec);
+            QVERIFY(!ec);
+        }
+
+        ScanEngine engine{};
+        std::vector<EngineDirSummary> sweep{};
+        std::mutex sweepMutex{};
+        usa::scanner::EngineCallbacks cb{};
+        cb.onBatch = [&](std::vector<EngineNode>) {};
+        cb.onSweep = [&](std::vector<EngineDirSummary> v) {
+            std::lock_guard<std::mutex> lock{sweepMutex};
+            sweep = std::move(v);
+        };
+        const auto result = engine.run(root, cb);
+        QCOMPARE(result.fileCount, static_cast<std::uint64_t>(1));
+
+        std::uint64_t subMax{0};
+        std::uint64_t rootMax{0};
+        for (const auto& s : sweep) {
+            if (s.nodeId == 0) {
+                rootMax = s.maxMtime;
+            } else {
+                subMax = s.maxMtime; // only non-root dir in the fixture
+            }
+        }
+        // sub carries the backdated file's time (~t0 - 3600), distinctly
+        // older than its own fresh object (~t0): descendant recency,
+        // not object recency. root carries ~t0 via the fresh
+        // subdirectory object propagating upward: dir objects count too.
+        QVERIFY(subMax >= t0 - 3900);
+        QVERIFY(subMax <= t0 - 3300);
+        QVERIFY(rootMax >= t0 - 120);
+    }
 };
 
 QTEST_MAIN(TestScanEngine)

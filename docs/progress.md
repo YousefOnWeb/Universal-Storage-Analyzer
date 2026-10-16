@@ -363,6 +363,20 @@
   the node-emplace block — caught by the compiler, deduplicated,
   diff-verified.
 
+## Current (2026-10-16) — spec 006 slice 006e (directory recency)
+
+- Directory Last Modified = max(object mtime, subtree-max): the
+  `DirAcc::maxMtime` audit tracker is now a first-class
+  `EngineDirSummary`/`BranchMetrics` field (chain + sweep), directory
+  objects feed it alongside files, and `applyMetrics` stores the max
+  (stale summaries never rewind). Files keep their own mtime.
+- Tests: `subtreeMaxMtimeReachesSummaries` (backdated file vs fresh
+  dir object discriminates both directions) +
+  `directoryRecencyTakesSubtreeMax` (raise-then-stale model
+  combination). Test fix: directory mtime writes fail on this
+  runtime, so the engine test backdates the file instead. 14/14
+  green, lint clean.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

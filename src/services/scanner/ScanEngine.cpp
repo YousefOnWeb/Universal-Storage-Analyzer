@@ -164,6 +164,7 @@ void ScanEngine::emitChain(const EngineCallbacks& callbacks, DirAcc* leafAcc)
         summary.physicalSize = current->physical.load(std::memory_order_relaxed);
         summary.fileCount = current->files.load(std::memory_order_relaxed);
         summary.folderCount = current->folders.load(std::memory_order_relaxed);
+        summary.maxMtime = current->maxMtime.load(std::memory_order_relaxed);
         chain.push_back(summary);
         current = current->parent;
     }
@@ -230,6 +231,7 @@ void ScanEngine::emitSweep(const EngineCallbacks& callbacks)
             summary.physicalSize = acc->physical.load(std::memory_order_relaxed);
             summary.fileCount = acc->files.load(std::memory_order_relaxed);
             summary.folderCount = acc->folders.load(std::memory_order_relaxed);
+            summary.maxMtime = acc->maxMtime.load(std::memory_order_relaxed);
             out.push_back(summary);
             // Sweep-vs-chain convergence (audit only): compare each final
             // against the last live chain report for the same directory.
@@ -402,6 +404,19 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
 
                 for (DirAcc* up = job.acc; up != nullptr; up = up->parent) {
                     localAgg[up].folders += 1;
+                }
+                // Spec 006e: directory objects feed subtree-max recency
+                // too (a dir newer than everything beneath it still shows
+                // its own mtime). Same CAS pattern as files below.
+                if (entry.lastWriteTs != 0) {
+                    for (DirAcc* up = job.acc; up != nullptr; up = up->parent) {
+                        std::uint64_t cur = up->maxMtime.load(std::memory_order_relaxed);
+                        while (entry.lastWriteTs > cur
+                               && !up->maxMtime.compare_exchange_weak(
+                                   cur, entry.lastWriteTs, std::memory_order_relaxed,
+                                   std::memory_order_relaxed)) {
+                        }
+                    }
                 }
 
                 localDirs.push_back(std::move(childAcc));

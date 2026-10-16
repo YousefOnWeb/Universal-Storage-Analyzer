@@ -637,6 +637,11 @@ void FileSystemModel::applyMetrics(Node* node, const BranchMetrics& metrics)
     node->allocatedSize = metrics.allocatedSize;
     node->fileCount = metrics.fileCount;
     node->folderCount = metrics.folderCount;
+    // Spec 006e: directory recency is max(object mtime, subtree-max).
+    // Object mtime arrived at insert; summaries carry the subtree max.
+    if (metrics.maxMtime > node->lastModifiedTs) {
+        node->lastModifiedTs = metrics.maxMtime;
+    }
 }
 
 void FileSystemModel::refreshNode(const QModelIndex& top, Node* node)

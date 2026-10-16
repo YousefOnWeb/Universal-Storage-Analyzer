@@ -34,6 +34,9 @@ struct BranchMetrics {
     quint64 allocatedSize{0};
     quint32 fileCount{0};
     quint32 folderCount{0};
+    // Subtree-max last-write, Unix seconds (spec 006e). Directories
+    // display max(object mtime, this); files never carry summaries.
+    quint64 maxMtime{0};
 };
 
 Q_DECLARE_METATYPE(BranchMetrics)
