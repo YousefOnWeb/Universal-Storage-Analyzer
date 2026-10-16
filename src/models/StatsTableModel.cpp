@@ -24,12 +24,14 @@ void StatsTableModel::setRows(QVector<StatsRow> rows)
 
 int StatsTableModel::rowCount(const QModelIndex& parent) const
 {
-    return parent.isValid() ? 0 : rows_.size();
+    // Bounded panes (extensions ≤ 4097, top files ≤ 10000): the cast
+    // cannot overflow; explicit to honor -Wconversion.
+    return parent.isValid() ? 0 : static_cast<int>(rows_.size());
 }
 
 int StatsTableModel::columnCount(const QModelIndex& /*parent*/) const
 {
-    return headers_.size();
+    return static_cast<int>(headers_.size());
 }
 
 QVariant StatsTableModel::data(const QModelIndex& index, int role) const
