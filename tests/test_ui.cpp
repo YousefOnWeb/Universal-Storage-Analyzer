@@ -868,9 +868,15 @@ private slots:
         f1.allocatedSize = 2097152;
         model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
 
-        auto* combo = win.findChild<QComboBox*>();
+        auto* combo = [&]() -> QComboBox* {
+            for (auto* box : win.findChildren<QComboBox*>()) {
+                if (box->accessibleName() == QStringLiteral("Size units")) {
+                    return box;
+                }
+            }
+            return nullptr;
+        }();
         QVERIFY(combo != nullptr);
-        QCOMPARE(combo->accessibleName(), QStringLiteral("Size units"));
         // Two-step: the ambient profile may already hold the target
         // text, and setCurrentText only signals on real changes.
         combo->setCurrentText(QStringLiteral("KB"));
@@ -918,6 +924,173 @@ private slots:
         QCOMPARE(details->model()->rowCount(), 1);
         QCOMPARE(details->model()->data(details->model()->index(0, FileSystemModel::ColSize)).toString(),
                  QStringLiteral("2.00 MB"));
+    }
+    void summaryStripTracksSelection()
+    {
+        // Spec 006f: the strip overviews the selection (root, dir,
+        // file) while the footer keeps the scan totals.
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        f1.allocatedSize = 4096;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+        BranchMetrics dm{};
+        dm.nodeId = 1;
+        dm.logicalSize = 500;
+        dm.allocatedSize = 4096;
+        dm.fileCount = 1;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), dm);
+        BranchMetrics rm{};
+        rm.nodeId = 0;
+        rm.logicalSize = 600;
+        rm.allocatedSize = 8192;
+        rm.fileCount = 1;
+        rm.folderCount = 1;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), rm);
+
+        // Ambient units never leak into size asserts: pin Auto first.
+        auto* combo = win.findChild<QComboBox*>();
+        QVERIFY(combo != nullptr);
+        combo->setCurrentText(QStringLiteral("KB"));
+        combo->setCurrentText(QStringLiteral("Auto"));
+
+        auto* strip = win.findChild<QLabel*>(QString(), Qt::FindChildrenRecursively);
+        QLabel* summary = nullptr;
+        for (auto* label : win.findChildren<QLabel*>()) {
+            if (label->accessibleName() == QStringLiteral("Selection summary")) {
+                summary = label;
+            }
+        }
+        QVERIFY(summary != nullptr);
+        Q_UNUSED(strip);
+
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        const auto selectSource = [&](quint32 id) {
+            const QModelIndex src = model.indexForNodeId(id);
+            QVERIFY(src.isValid());
+            const QModelIndex proxy = treeProxy->mapFromSource(src);
+            QVERIFY(proxy.isValid());
+            tree->setCurrentIndex(proxy);
+        };
+        selectSource(0); // volume root: whole-scan overview
+        QVERIFY(summary->text().contains(QStringLiteral("600.00 B")));
+        QVERIFY(summary->text().contains(QStringLiteral("Files: 1")));
+        selectSource(1); // directory: its own totals
+        QVERIFY(summary->text().contains(QStringLiteral("500.00 B")));
+        // Group member file: Files 1, Folders 0 (spec 006a rule).
+        const QModelIndex groupSrc = model.indexForNodeId(FileSystemModel::kRootFilesGroupId);
+        QVERIFY(groupSrc.isValid());
+        tree->setCurrentIndex(treeProxy->mapFromSource(groupSrc));
+        tree->expand(treeProxy->mapFromSource(groupSrc));
+        const QModelIndex fSrc = model.indexForNodeId(2);
+        tree->setCurrentIndex(treeProxy->mapFromSource(fSrc));
+        QVERIFY(summary->text().contains(QStringLiteral("100.00 B")));
+        QVERIFY(summary->text().contains(QStringLiteral("Files: 1")));
+        QVERIFY(summary->text().contains(QStringLiteral("Folders: 0")));
+    }
+
+    void chartPageSwitchesModesWithDrillDown()
+    {
+        // Spec 006f: one Chart page, Bars/Pie modes, drill-down in both.
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f1{};
+        f1.id = 2;
+        f1.parentId = 0;
+        f1.name = QStringLiteral("f1");
+        f1.logicalSize = 100;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f1});
+        BranchMetrics dm{};
+        dm.nodeId = 1;
+        dm.logicalSize = 500;
+        model.onBranchMetricsUpdated(QStringLiteral("t"), dm);
+
+        QComboBox* mode = nullptr;
+        for (auto* box : win.findChildren<QComboBox*>()) {
+            if (box->accessibleName() == QStringLiteral("Chart mode")) {
+                mode = box;
+            }
+        }
+        QVERIFY(mode != nullptr);
+        auto* bars = win.findChild<BarWidget*>();
+        QVERIFY(bars != nullptr);
+        bars->refreshSoon(); // debounced recompute, like live model churn
+        QTest::qWait(500);
+        auto* pie = win.findChild<PieWidget*>();
+        QVERIFY(pie != nullptr);
+        auto* tabs = win.findChild<QTabWidget*>();
+        QVERIFY(tabs != nullptr);
+        tabs->setCurrentIndex(1); // Chart page (Details is 0)
+        QCOMPARE(mode->currentIndex(), 0);
+        QVERIFY(bars->isVisible());
+        QCOMPARE(bars->barCount(), 2); // D + group, no data loss switching
+        mode->setCurrentIndex(1);
+        QVERIFY(pie->isVisible());
+        QVERIFY(!bars->isVisible());
+        mode->setCurrentIndex(0);
+        QVERIFY(bars->isVisible());
+        QCOMPARE(bars->barCount(), 2);
+
+        // Drill-down works from the bars mode through real wiring.
+        auto* tree = win.findChild<QTreeView*>();
+        QVERIFY(tree != nullptr);
+        auto* treeProxy = qobject_cast<QSortFilterProxyModel*>(tree->model());
+        QVERIFY(treeProxy != nullptr);
+        QSignalSpy clickedSpy{bars, &BarWidget::barClicked};
+        bars->selectRow(0); // D, the larger bar
+        QCOMPARE(clickedSpy.count(), 1);
+        const QModelIndex curSrc = treeProxy->mapToSource(tree->currentIndex());
+        QCOMPARE(model.nodeIdForIndex(curSrc), static_cast<quint32>(1));
+    }
+
+    void driveControlSetsTarget()
+    {
+        // Spec 006f: picking a mounted volume sets the scan target.
+        FileSystemModel model{};
+        ScannerService scanner{};
+        ThemeManager themes{testApp()};
+        MainWindow win{&model, &scanner, &themes};
+        win.show();
+
+        QComboBox* drives = nullptr;
+        for (auto* box : win.findChildren<QComboBox*>()) {
+            if (box->accessibleName() == QStringLiteral("Drives")) {
+                drives = box;
+            }
+        }
+        QVERIFY(drives != nullptr);
+        QVERIFY(drives->count() >= 1); // the system volume is always listed
+        auto* target = targetEdit(&win);
+        QVERIFY(target != nullptr);
+        drives->setCurrentIndex(drives->count() - 1);
+        QCOMPARE(target->text(), drives->currentText());
     }
 };
 

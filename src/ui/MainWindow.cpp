@@ -47,6 +47,16 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     targetEdit_->setPlaceholderText(QStringLiteral("Select a folder or drive to scan…"));
     targetEdit_->setText(QDir::homePath());
     targetEdit_->setAccessibleName(QStringLiteral("Scan target path"));
+    drivesCombo_ = new QComboBox(central);
+    drivesCombo_->setAccessibleName(QStringLiteral("Drives"));
+    drivesCombo_->setToolTip(QStringLiteral("Pick a mounted volume as the scan target"));
+    for (const QStorageInfo& vol : QStorageInfo::mountedVolumes()) {
+        if (vol.isValid() && !vol.isReadOnly()) {
+            drivesCombo_->addItem(vol.rootPath());
+        }
+    }
+    connect(drivesCombo_, &QComboBox::currentTextChanged, this,
+            [this](const QString& path) { targetEdit_->setText(path); });
     auto* browseBtn = new QPushButton(QStringLiteral("Browse…"), central);
     startStopBtn_ = new QPushButton(QStringLiteral("Start"), central);
     startStopBtn_->setDefault(true);
@@ -59,6 +69,7 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     quickSearch_->setClearButtonEnabled(true);
     quickSearch_->setAccessibleName(QStringLiteral("Quick search filter"));
     topBar->addWidget(targetEdit_, 1);
+    topBar->addWidget(drivesCombo_);
     topBar->addWidget(browseBtn);
     topBar->addWidget(startStopBtn_);
     topBar->addWidget(unitsCombo_);
@@ -100,7 +111,14 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
 
     rightSplitter_ = new QSplitter(Qt::Vertical, splitter_);
     tabs_ = new QTabWidget(rightSplitter_);
-    detailsView_ = new QTableView(tabs_);
+    detailsTab_ = new QWidget(tabs_);
+    auto* detailsLayout = new QVBoxLayout(detailsTab_);
+    detailsLayout->setContentsMargins(0, 0, 0, 0);
+    summaryLabel_ = new QLabel(detailsTab_);
+    summaryLabel_->setAccessibleName(QStringLiteral("Selection summary"));
+    summaryLabel_->setWordWrap(true);
+    detailsLayout->addWidget(summaryLabel_);
+    detailsView_ = new QTableView(detailsTab_);
     detailsView_->setAccessibleName(QStringLiteral("Details table"));
     detailsView_->setObjectName(QStringLiteral("Details"));
     detailsView_->setSortingEnabled(true);
@@ -114,14 +132,29 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     detailsView_->setModel(detailsProxy_);
     detailsView_->sortByColumn(FileSystemModel::ColSize, Qt::DescendingOrder);
     detailsView_->horizontalHeader()->setStretchLastSection(true);
-    tabs_->addTab(detailsView_, QStringLiteral("Details"));
+    detailsLayout->addWidget(detailsView_, 1);
+    tabs_->addTab(detailsTab_, QStringLiteral("Details"));
+    // Spec 006f: one chart page with Bars/Pie modes (drill-down
+    // preserved); the painters are reused untouched.
     bar_ = new BarWidget(model_);
-    auto* barScroll = new QScrollArea(tabs_);
+    chartTab_ = new QWidget(tabs_);
+    auto* chartLayout = new QVBoxLayout(chartTab_);
+    chartLayout->setContentsMargins(0, 0, 0, 0);
+    chartMode_ = new QComboBox(chartTab_);
+    chartMode_->setAccessibleName(QStringLiteral("Chart mode"));
+    chartMode_->addItems({QStringLiteral("Bars"), QStringLiteral("Pie")});
+    chartLayout->addWidget(chartMode_);
+    chartStack_ = new QStackedWidget(chartTab_);
+    auto* barScroll = new QScrollArea(chartStack_);
     barScroll->setWidget(bar_);
     barScroll->setWidgetResizable(true);
-    tabs_->addTab(barScroll, QStringLiteral("Bars"));
-    pie_ = new PieWidget(model_, tabs_);
-    tabs_->addTab(pie_, QStringLiteral("Pie"));
+    chartStack_->addWidget(barScroll);
+    pie_ = new PieWidget(model_, chartStack_);
+    chartStack_->addWidget(pie_);
+    chartLayout->addWidget(chartStack_, 1);
+    connect(chartMode_, &QComboBox::currentIndexChanged, this,
+            [this](int index) { chartStack_->setCurrentIndex(index); });
+    tabs_->addTab(chartTab_, QStringLiteral("Chart"));
     extView_ = makeStatsTab(QStringLiteral("Extensions"), extModel_, extProxy_);
     topView_ = makeStatsTab(QStringLiteral("Top Files"), topModel_, topProxy_);
     usersView_ = makeStatsTab(QStringLiteral("Users"), usersModel_, usersProxy_);
@@ -175,6 +208,8 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
     connect(quickSearch_, &QLineEdit::textChanged, this, &MainWindow::onQuickSearchChanged);
     connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex&, const QModelIndex&) { onTreeSelectionChanged(); });
+    connect(model_, &FileSystemModel::dataChanged, this,
+            [this](const QModelIndex&, const QModelIndex&) { refreshSummary(); });
     // Treemap follows the model through a debounce (live scans must not
     // repaint-storm); selection changes re-root it immediately.
     connect(model_, &FileSystemModel::rowsInserted, treemap_, &TreemapWidget::refreshSoon);
@@ -281,6 +316,9 @@ MainWindow::MainWindow(FileSystemModel* model, ScannerService* scanner, ThemeMan
 
     restoreWindowState();
     applyStartupTarget();
+    // The drive control mirrors the target field once restored (one
+    // way: picking a drive sets the target; typing stays manual).
+    drivesCombo_->setCurrentText(targetEdit_->text());
     pie_->setTargetPath(targetEdit_->text());
     applyOptionsToEngine(); // push saved options before the first scan
     // Spec 006b: one selector drives every rendered size (model
@@ -467,6 +505,32 @@ void MainWindow::onTreeSelectionChanged()
         bar_->setRootId(id);
         pie_->setRootId(id);
     }
+    refreshSummary();
+}
+
+void MainWindow::refreshSummary()
+{
+    // Spec 006f: compact selected-node overview (the footer keeps the
+    // scan totals — the two are never confused). Empty cells render
+    // as em dashes so "unknown" never looks like zero.
+    const QModelIndex cur = tree_->currentIndex();
+    const QModelIndex src = treeProxy_->mapToSource(cur);
+    if (!src.isValid()) {
+        summaryLabel_->setText(QStringLiteral("No selection"));
+        return;
+    }
+    const auto cell = [&](int column) {
+        const QString text =
+            model_->data(model_->index(src.row(), column, src.parent())).toString();
+        return text.isEmpty() ? QStringLiteral("—") : text;
+    };
+    summaryLabel_->setText(
+        QStringLiteral("Size: %1 | Allocated: %2 | Files: %3 | Folders: %4 | "
+                       "Modified: %5 | Accessed: %6 | Owner: %7")
+            .arg(cell(FileSystemModel::ColSize), cell(FileSystemModel::ColAllocated),
+                 cell(FileSystemModel::ColFiles), cell(FileSystemModel::ColFolders),
+                 cell(FileSystemModel::ColModified), cell(FileSystemModel::ColAccessed),
+                 cell(FileSystemModel::ColOwner)));
 }
 
 void MainWindow::selectTreeNode(quint32 nodeId)

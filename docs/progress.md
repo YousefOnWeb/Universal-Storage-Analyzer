@@ -377,6 +377,23 @@
   runtime, so the engine test backdates the file instead. 14/14
   green, lint clean.
 
+## Current (2026-10-16) — spec 006 slice 006f (summary, charts, drives)
+
+- Details tab gains a `Selection summary` strip (size, allocated,
+  files, folders, modified, accessed, owner; empties render as em
+  dashes) refreshed on selection + model changes; footer keeps the
+  scan totals — the two can no longer be confused.
+- One `Chart` page with a Bars/Pie mode switch replaces the two tabs
+  (painters reused untouched, drill-down preserved); toolbar gains a
+  `Drives` combo that sets the target path (status text stays the
+  read-out).
+- Tests: `summaryStripTracksSelection` (root/dir/file incl. group
+  member), `chartPageSwitchesModesWithDrillDown` (visibility flip,
+  no data loss, bars drill-down), `driveControlSetsTarget`. Caught:
+  new combo broke a first-match combo lookup (fixed by accessible
+  name) and chart widgets need their tab current + a refresh before
+  visibility/count asserts. 14/14 green, lint clean.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

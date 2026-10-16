@@ -21,6 +21,7 @@
 #include <QPushButton>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTableView>
 #include <QTreeView>
@@ -66,6 +67,8 @@ private:
     void projectAnalytics(const AnalyticsData& data);
     // Rebuilds the footer totals + free-space lines (spec 006b).
     void refreshFooter();
+    // Rebuilds the selection summary strip (spec 006f).
+    void refreshSummary();
     QTableView* makeStatsTab(const QString& title, StatsTableModel*& model,
                              QSortFilterProxyModel*& proxy);
     QString shareText(double pct) const;
@@ -76,12 +79,18 @@ private:
 
     QTreeView* tree_{nullptr};
     TreeFilterProxyModel* treeProxy_{nullptr};
+    QWidget* detailsTab_{nullptr};
+    QLabel* summaryLabel_{nullptr};
     QTableView* detailsView_{nullptr};
     QSortFilterProxyModel* detailsProxy_{nullptr};
     DetailsTableModel* detailsModel_{nullptr};
     QTabWidget* tabs_{nullptr};
     QSplitter* splitter_{nullptr};
     QSplitter* rightSplitter_{nullptr};
+    QWidget* chartTab_{nullptr};
+    QComboBox* chartMode_{nullptr};
+    QStackedWidget* chartStack_{nullptr};
+    QComboBox* drivesCombo_{nullptr};
     TreemapWidget* treemap_{nullptr};
     BarWidget* bar_{nullptr};
     PieWidget* pie_{nullptr};
