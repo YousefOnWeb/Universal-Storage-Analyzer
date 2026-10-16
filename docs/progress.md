@@ -394,6 +394,14 @@
   name) and chart widgets need their tab current + a refresh before
   visibility/count asserts. 14/14 green, lint clean.
 
+## Current (2026-10-16) — spec 006 accepted
+
+- All nine §5 boxes checked with per-box test evidence; headless
+  exit 0 and layering greps re-verified at completion (no `#include
+  <Q` in scanner, no widgets/FS/SQL in models). Progress-log
+  discipline held: two destructive header edits caught and restored
+  byte-identical (empty diff proof) before proceeding.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

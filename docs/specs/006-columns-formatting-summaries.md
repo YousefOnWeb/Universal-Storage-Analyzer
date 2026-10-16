@@ -124,27 +124,41 @@ standing rule is to match reference behavior where it is sane.
   current status text); picking one sets the target path. The status
   text remains as the read-out.
 
-## 5. Acceptance criteria
+## 5. Acceptance criteria (verified 2026-10-16, branch `feature/m2-analytics`)
 
-- [ ] File rows read `1` / `0`; no empty-where-zero cells in the
-  table; fixture asserts both roles.
-- [ ] `% of Parent` matches an independent recomputation on a
+- [x] File rows read `1` / `0`; no empty-where-zero cells in the
+  table; fixture asserts both roles. (006a role-matrix test.)
+- [x] `% of Parent` matches an independent recomputation on a
   fixture (one decimal; `—` on zero denominators).
-- [ ] Fixed-unit runs render `162.1 GB`-class strings in details,
+  (`shareOfParentComputesExactly`.)
+- [x] Fixed-unit runs render `162.1 GB`-class strings in details,
   bars, pie, treemap, footer, and group rows; SortRole stays raw;
-  `Auto` buckets by magnitude.
-- [ ] Owner column shows resolved names with `(unknown)` honesty
+  `Auto` buckets by magnitude. (`formatsSizesPerUnitWithRawSortKeys`,
+  `unitSelectorFormatsRenderedSizes` end to end.)
+- [x] Owner column shows resolved names with `(unknown)` honesty
   states; resolver cache covered by unit tests (fake ids).
-- [ ] Accessed column shows backend times, empty where unknown;
-  no new per-file syscalls (review + fixture).
-- [ ] Directory Modified reflects subtree recency on a fixture
+  (`ownerColumnResolvesWithUnknownHonesty` + pre-existing
+  `test_ownerresolver`; zero quota-owner stays uncaptured live.)
+- [x] Accessed column shows backend times, empty where unknown;
+  no new per-file syscalls (fields already fetched: enumeration
+  buffers, same `lstat`, same record bytes — review + fixture).
+  (`parsesAccessTimeFromStandardInformation`,
+  `accessColumnShowsBackendTime`.)
+- [x] Directory Modified reflects subtree recency on a fixture
   (child newer than parent object → parent shows child time).
-- [ ] Summary strip tracks selection; footer tracks the scan; a UI
+  (`subtreeMaxMtimeReachesSummaries`,
+  `directoryRecencyTakesSubtreeMax`.)
+- [x] Summary strip tracks selection; footer tracks the scan; a UI
   test selects root, group, dir, and file and reads both.
-- [ ] Chart modes switch without data loss; drill-down works in
+  (`summaryStripTracksSelection`.)
+- [x] Chart modes switch without data loss; drill-down works in
   both; drive control sets the target.
-- [ ] `unit` + `integration` + `ui` green; lint clean;
+  (`chartPageSwitchesModesWithDrillDown`, `driveControlSetsTarget`.)
+- [x] `unit` + `integration` + `ui` green; lint clean;
   `--smoke-test` / `--headless-check` exit 0; layering greps clean.
+  (14/14 + `LINT-OK` at every slice commit; headless exit 0
+  verified; no `#include <Q` in scanner, no widgets/FS/SQL in
+  models.)
 
 ## 6. Vertical slices (each: plan → implement → verify → commit)
 
