@@ -142,9 +142,14 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
                        static_cast<qint64>(node->lastModifiedTs))
                 .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         case ColAccessed:
-            // Spec 006d fills this from backend access times; until
-            // then the column reserves its position and stays empty.
-            return {};
+            // Spec 006d: backend access times; unknown stays empty like
+            // an unknown mtime (never a guessed date).
+            if (node->lastAccessTs == 0) {
+                return {};
+            }
+            return QDateTime::fromSecsSinceEpoch(
+                       static_cast<qint64>(node->lastAccessTs))
+                .toString(QStringLiteral("yyyy-MM-dd HH:mm"));
         case ColOwner:
             // Spec 006c: lazy cached resolution; empty ids render the
             // honest "(unknown)" the Users pane already uses.
@@ -178,7 +183,7 @@ QVariant FileSystemModel::data(const QModelIndex& index, int role) const
         case ColModified:
             return static_cast<qint64>(node->lastModifiedTs);
         case ColAccessed:
-            return {};
+            return static_cast<qint64>(node->lastAccessTs);
         case ColOwner:
             return ownerResolver_.displayName(node->ownerId);
         default:
@@ -457,6 +462,7 @@ void FileSystemModel::insertRowsUnder(Node* parentNode, const QVector<FileRecord
         node->logicalSize = rec.logicalSize;
         node->allocatedSize = rec.allocatedSize;
         node->lastModifiedTs = rec.lastModifiedTs;
+        node->lastAccessTs = rec.lastAccessTs;
         node->isDirectory = rec.isDirectory;
         node->ownerId = rec.ownerId;
         node->parent = parentNode;
@@ -550,6 +556,7 @@ void FileSystemModel::insertRootFileMembers(const QVector<FileRecord>& files)
         node->logicalSize = rec.logicalSize;
         node->allocatedSize = rec.allocatedSize;
         node->lastModifiedTs = rec.lastModifiedTs;
+        node->lastAccessTs = rec.lastAccessTs;
         node->isDirectory = false;
         node->ownerId = rec.ownerId;
         node->parent = group;

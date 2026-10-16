@@ -349,6 +349,20 @@
   block-delete repaired on the spot (full-diff review before moving
   on both times).
 
+## Current (2026-10-16) — spec 006 slice 006d (access-time pipeline)
+
+- `lastAccessTs` flows backend → engine → bridge → model: volume
+  records read `$STANDARD_INFORMATION` access time; Windows native
+  reads both enumeration classes' `LastAccessTime` (fields already
+  declared, previously ignored); POSIX reads `st_atime`. Zero stays
+  empty (never a guessed date). Column reserved in 006c now renders.
+- Tests: `parsesAccessTimeFromStandardInformation` (fixture) +
+  `accessColumnShowsBackendTime` (display/sort/unknown paths). Native
+  field reads are review-covered (same pattern as adjacent lines).
+  14/14 green, lint clean. One self-catch: a repair edit had tripled
+  the node-emplace block — caught by the compiler, deduplicated,
+  diff-verified.
+
 ## Completed (2026-10-09) — Milestone 2 analytics (spec 002, branch `feature/m2-analytics`)
 
 - Engine accumulators in the single scan pass (extensions, top-N heap,

@@ -18,6 +18,7 @@ struct FileRecord {
     quint64 logicalSize{0};
     quint64 allocatedSize{0};
     quint64 lastModifiedTs{0};
+    quint64 lastAccessTs{0}; // Unix seconds, 0 when unknown (spec 006d)
     bool isDirectory{false};
     bool isCompressed{false};
     // Backend-opaque owner identity (spec 006c); empty when the backend

@@ -102,6 +102,7 @@ private:
         quint32 fileCount{0};
         quint32 folderCount{0};
         quint64 lastModifiedTs{0};
+        quint64 lastAccessTs{0}; // Unix seconds, 0 when unknown (spec 006d)
         bool isDirectory{false};
         Node* parent{nullptr};
         QVector<Node*> children{};

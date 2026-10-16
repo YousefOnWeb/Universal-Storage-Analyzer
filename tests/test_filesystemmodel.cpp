@@ -1,5 +1,6 @@
 #include <QtTest>
 
+#include <QDateTime>
 #include <QDir>
 
 #include <cmath>
@@ -605,8 +606,38 @@ private slots:
                  QStringLiteral("Owner"));
         QCOMPARE(model.headerData(FileSystemModel::ColAccessed, Qt::Horizontal).toString(),
                  QStringLiteral("Last Accessed"));
-        // Accessed stays empty until 006d fills it from backends.
+        // Unknown access times stay empty (never a guessed date).
         QVERIFY(!model.data(model.index(fIdx.row(), FileSystemModel::ColAccessed, groupIdx)).isValid());
+    }
+
+    void accessColumnShowsBackendTime()
+    {
+        // Spec 006d: backend access times render like modification
+        // times; zero stays empty; SortRole stays raw.
+        FileSystemModel model{};
+        model.onScanStarted(QStringLiteral("t"), QStringLiteral("C:/data"));
+        FileRecord dir{};
+        dir.id = 1;
+        dir.parentId = 0;
+        dir.name = QStringLiteral("D");
+        dir.isDirectory = true;
+        FileRecord f{};
+        f.id = 2;
+        f.parentId = 1;
+        f.name = QStringLiteral("f");
+        f.logicalSize = 50;
+        f.lastModifiedTs = 1700000000;
+        f.lastAccessTs = 1700086400;
+        model.onNodesDiscovered(QStringLiteral("t"), QVector<FileRecord>{dir, f});
+
+        const QModelIndex fIdx = model.indexForNodeId(2);
+        QVERIFY(fIdx.isValid());
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColAccessed, fIdx.parent())).toString(),
+                 QDateTime::fromSecsSinceEpoch(static_cast<qint64>(1700086400))
+                     .toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+        QCOMPARE(model.data(model.index(fIdx.row(), FileSystemModel::ColAccessed, fIdx.parent()),
+                            FileSystemModel::Roles::SortRole).toLongLong(),
+                 static_cast<qlonglong>(1700086400));
     }
 
     void treeFilterSearchesRecursively()

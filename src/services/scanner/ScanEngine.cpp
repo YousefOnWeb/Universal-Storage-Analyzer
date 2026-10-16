@@ -390,6 +390,7 @@ void ScanEngine::workerMain(const EngineCallbacks& callbacks, unsigned index)
             node.logicalSize = entry.logicalSize;
             node.physicalSize = entry.physicalSize;
             node.lastWriteTs = entry.lastWriteTs;
+            node.lastAccessTs = entry.lastAccessTs;
             node.isDirectory = entry.isDirectory;
             node.ownerId = entry.ownerId;
 

@@ -225,6 +225,7 @@ bool DirectoryFinder::fillCurrent(const unsigned char* record)
     std::uint64_t logical{0};
     std::uint64_t physical{0};
     std::int64_t writeFt{0};
+    std::int64_t accessFt{0};
     ULONG attributes{0};
     ULONG nameLenBytes{0};
     std::size_t nameOff{0};
@@ -236,6 +237,8 @@ bool DirectoryFinder::fillCurrent(const unsigned char* record)
             readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, AllocationSize)));
         writeFt = static_cast<std::int64_t>(
             readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, LastWriteTime)));
+        accessFt = static_cast<std::int64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileIdFullDirInfo, LastAccessTime)));
         nameLenBytes =
             readField<ULONG>(record + offsetof(UsaFileIdFullDirInfo, FileNameLength));
         nameOff = offsetof(UsaFileIdFullDirInfo, FileName);
@@ -247,6 +250,8 @@ bool DirectoryFinder::fillCurrent(const unsigned char* record)
             readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, AllocationSize)));
         writeFt = static_cast<std::int64_t>(
             readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, LastWriteTime)));
+        accessFt = static_cast<std::int64_t>(
+            readField<LONGLONG>(record + offsetof(UsaFileFullDirInfo, LastAccessTime)));
         nameLenBytes = readField<ULONG>(record + offsetof(UsaFileFullDirInfo, FileNameLength));
         nameOff = offsetof(UsaFileFullDirInfo, FileName);
     }
@@ -268,6 +273,7 @@ bool DirectoryFinder::fillCurrent(const unsigned char* record)
     cur.logicalSize = cur.isDirectory ? 0 : logical;
     cur.physicalSize = cur.isDirectory ? 0 : physical;
     cur.lastWriteTs = filetimeToUnix(writeFt);
+    cur.lastAccessTs = filetimeToUnix(accessFt);
     current_ = std::move(cur);
     return true;
 }
@@ -371,6 +377,7 @@ bool DirectoryFinder::findNext()
             cur.physicalSize =
                 static_cast<std::uint64_t>(blocks) * static_cast<std::uint64_t>(512);
             cur.lastWriteTs = static_cast<std::uint64_t>(sb.st_mtime);
+            cur.lastAccessTs = static_cast<std::uint64_t>(sb.st_atime);
             cur.ownerId = std::to_string(sb.st_uid); // free with the stat call
         }
         if (cur.isReparsePoint) {

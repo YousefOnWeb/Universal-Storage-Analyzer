@@ -905,6 +905,7 @@ bool MftFinder::findNext()
         cur.logicalSize = rec.isDirectory ? 0 : rec.logicalSize;
         cur.physicalSize = rec.isDirectory ? 0 : rec.physicalSize;
         cur.lastWriteTs = rec.lastWriteTs;
+        cur.lastAccessTs = rec.lastAccessTs;
         cur.ownerId = rec.hasOwner ? std::to_string(rec.ownerId) : std::string{};
         cur.backendToken = rec.number;
         if (!cur.isDirectory && !cur.isReparsePoint && cur.logicalSize == 0) {

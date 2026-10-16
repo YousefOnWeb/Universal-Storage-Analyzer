@@ -153,6 +153,7 @@ bool parseMftRecord(const unsigned char* base, std::size_t recordSize, std::uint
             const std::size_t cstart = off + contentOff;
             if (contentLen >= 36 && cstart + contentLen <= recordSize) {
                 rec.lastWriteTs = filetimeToUnix(readU64(p + cstart + 8));
+                rec.lastAccessTs = filetimeToUnix(readU64(p + cstart + 24));
                 const std::uint32_t dosAttrs = readU32(p + cstart + 32);
                 if ((dosAttrs & kFileAttributeReparsePoint) != 0) {
                     rec.isReparsePoint = true;

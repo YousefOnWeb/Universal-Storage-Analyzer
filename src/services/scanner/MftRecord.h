@@ -30,6 +30,7 @@ struct MftRecord {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};
     std::uint64_t lastWriteTs{0}; // Unix seconds
+    std::uint64_t lastAccessTs{0}; // Unix seconds, 0 when unknown (spec 006d)
     // Every $FILE_NAME link in the record (hardlinks carry several).
     // The planar fields above stay as the primary link (first non-DOS
     // name) for existing consumers; the finder expands all entries in

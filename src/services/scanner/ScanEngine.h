@@ -29,6 +29,7 @@ struct EngineNode {
     std::uint64_t logicalSize{0};
     std::uint64_t physicalSize{0};
     std::uint64_t lastWriteTs{0};
+    std::uint64_t lastAccessTs{0}; // Unix seconds, 0 when unknown (spec 006d)
     bool isDirectory{false};
     // Backend-opaque owner identity, copied from the entry (see Finder.h).
     std::string ownerId{};

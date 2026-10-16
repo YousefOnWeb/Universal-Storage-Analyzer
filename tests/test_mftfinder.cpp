@@ -180,6 +180,17 @@ private slots:
         QVERIFY(rec.name == L"test"); // record itself still parses
     }
 
+    void parsesAccessTimeFromStandardInformation()
+    {
+        // Spec 006d: the fixture stamps creation/modification/change/
+        // access with the same value — access must decode identically.
+        auto buf = makeFileRecord();
+        usa::scanner::detail::MftRecord rec{};
+        QVERIFY(usa::scanner::detail::parseMftRecord(buf.data(), buf.size(), 42, rec));
+        QCOMPARE(rec.lastAccessTs, usa::scanner::detail::filetimeToUnix(kTestFiletime));
+        QCOMPARE(rec.lastAccessTs, rec.lastWriteTs);
+    }
+
     void rejectsCorruptRecords()
     {
         auto torn = makeFileRecord();
