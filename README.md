@@ -1,4 +1,4 @@
-# Universal Storage Analyzer (FOSS)
+# Universal Storage Analyzer
 
 High-performance, open-source storage intelligence for Windows, macOS, and Linux:
 scan local drives, visualize consumption in a live dual-pane UI, and act on results.
